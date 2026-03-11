@@ -34,6 +34,8 @@
     --blue: #3b82f6;
     --radius: 16px;
     --radius-sm: 10px;
+    --page-pad: 24px;
+    --section-gap: 20px;
   }
 
   html, body {
@@ -53,7 +55,6 @@
       var(--bg);
   }
 
-  /* ── Animations ──────────────────────────────────────────────── */
   @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
   @keyframes glow { 0%, 100% { box-shadow: 0 0 8px var(--green-glow); } 50% { box-shadow: 0 0 16px var(--green-glow), 0 0 32px rgba(16,185,129,0.1); } }
@@ -66,7 +67,6 @@
   }
   @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
 
-  /* ── Header ──────────────────────────────────────────────────── */
   header {
     flex-shrink: 0;
     display: flex;
@@ -131,17 +131,18 @@
     background: var(--border);
   }
 
-  /* ── Metrics Bar ─────────────────────────────────────────────── */
   .metrics-bar {
     display: flex;
     gap: 24px;
     flex: 1;
+    flex-wrap: wrap;
   }
 
   .metric-item {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 72px;
   }
 
   .metric-value {
@@ -170,14 +171,6 @@
     gap: 16px;
   }
 
-  .uptime-display {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.5px;
-  }
-
   .live-indicator {
     display: flex;
     align-items: center;
@@ -203,19 +196,38 @@
     box-shadow: 0 0 8px rgba(239,68,68,0.3);
   }
 
-  /* ── Main Layout ─────────────────────────────────────────────── */
   .main-content {
     flex: 1;
     display: grid;
-    grid-template-columns: 1fr 340px;
-    gap: 0;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-areas:
+      'main sidebar';
+    gap: var(--section-gap);
+    padding: var(--page-pad);
+    align-items: start;
   }
 
-  /* ── Agent Cards Grid ────────────────────────────────────────── */
+  .content-column {
+    grid-area: main;
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .panel {
+    background: var(--surface);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    overflow: hidden;
+    min-width: 0;
+  }
+
   .agents-section {
-    grid-column: 1;
-    grid-row: 1;
-    padding: 20px 24px;
+    padding: 20px 24px 24px;
   }
 
   .section-label {
@@ -234,7 +246,7 @@
 
   .agents-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 14px;
   }
 
@@ -248,6 +260,7 @@
     position: relative;
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
+    min-width: 0;
   }
 
   .agent-card::before {
@@ -269,25 +282,19 @@
   }
 
   .agent-card:hover::before { opacity: 1; }
-
   .agent-card.ACTIVE {
     border-color: rgba(16, 185, 129, 0.2);
     box-shadow: 0 0 24px rgba(16, 185, 129, 0.06);
     animation: borderPulse 4s ease-in-out infinite;
   }
-
-  .agent-card.IDLE {
-    border-color: rgba(245, 158, 11, 0.15);
-  }
-
-  .agent-card.OFFLINE {
-    opacity: 0.45;
-  }
+  .agent-card.IDLE { border-color: rgba(245, 158, 11, 0.15); }
+  .agent-card.OFFLINE { opacity: 0.45; }
 
   .card-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
+    gap: 12px;
     margin-bottom: 16px;
   }
 
@@ -295,6 +302,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
   }
 
   .agent-avatar {
@@ -306,6 +314,7 @@
     justify-content: center;
     font-size: 1.3rem;
     position: relative;
+    flex-shrink: 0;
   }
 
   .agent-avatar.sai { background: linear-gradient(135deg, rgba(124,58,237,0.2), rgba(6,182,212,0.15)); }
@@ -323,22 +332,15 @@
     border: 2px solid var(--surface-solid);
   }
 
-  .status-dot.ACTIVE {
-    background: var(--green);
-    animation: glow 2s ease-in-out infinite;
-  }
-  .status-dot.IDLE {
-    background: var(--yellow);
-    animation: pulseYellow 2s ease-in-out infinite;
-  }
-  .status-dot.OFFLINE {
-    background: var(--muted);
-  }
+  .status-dot.ACTIVE { background: var(--green); animation: glow 2s ease-in-out infinite; }
+  .status-dot.IDLE { background: var(--yellow); animation: pulseYellow 2s ease-in-out infinite; }
+  .status-dot.OFFLINE { background: var(--muted); }
 
   .card-name-group {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
   }
 
   .card-name {
@@ -362,6 +364,7 @@
     padding: 3px 8px;
     border-radius: 20px;
     white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .model-claude {
@@ -385,9 +388,7 @@
     border: 1px solid rgba(75, 85, 99, 0.2);
   }
 
-  .card-status {
-    margin-bottom: 12px;
-  }
+  .card-status { margin-bottom: 12px; }
 
   .status-badge {
     display: inline-flex;
@@ -423,6 +424,7 @@
     color: var(--text-secondary);
     min-height: 1.4em;
     margin-top: 6px;
+    word-break: break-word;
   }
   .card-task.empty {
     color: var(--muted);
@@ -441,13 +443,12 @@
     gap: 10px;
   }
 
-  .token-bar-container {
-    width: 100%;
-  }
+  .token-bar-container { width: 100%; }
 
   .token-bar-header {
     display: flex;
     justify-content: space-between;
+    gap: 10px;
     margin-bottom: 5px;
     font-size: 0.6rem;
     color: var(--muted);
@@ -456,6 +457,7 @@
   .token-pct {
     font-weight: 700;
     color: var(--text-secondary);
+    flex-shrink: 0;
   }
 
   .token-bar-track {
@@ -482,26 +484,25 @@
   .card-meta {
     display: flex;
     justify-content: space-between;
+    gap: 10px;
     font-size: 0.6rem;
     color: var(--muted);
   }
 
-  /* ── System Panel (Right Sidebar) ────────────────────────────── */
   .sidebar {
-    grid-column: 2;
-    grid-row: 1 / 3;
-    border-left: 1px solid var(--border);
+    grid-area: sidebar;
     display: flex;
     flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
     min-height: 0;
-    background: var(--surface);
-    backdrop-filter: blur(16px);
+    position: sticky;
+    top: 24px;
+    align-self: start;
   }
 
   .system-panel {
     padding: 20px;
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
   }
 
   .sys-grid {
@@ -515,7 +516,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 12px;
+    gap: 12px;
+    padding: 12px;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--glass-border);
     border-radius: var(--radius-sm);
@@ -531,6 +533,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
   }
 
   .sys-icon {
@@ -554,7 +557,8 @@
   .sys-info {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
+    min-width: 0;
   }
 
   .sys-label {
@@ -566,6 +570,7 @@
   .sys-detail {
     font-size: 0.58rem;
     color: var(--muted);
+    word-break: break-word;
   }
 
   .sys-value {
@@ -574,33 +579,18 @@
     padding: 2px 8px;
     border-radius: 12px;
     white-space: nowrap;
+    flex-shrink: 0;
   }
 
-  .sys-ok {
-    color: var(--green);
-    background: rgba(16, 185, 129, 0.1);
-  }
-  .sys-warn {
-    color: var(--yellow);
-    background: rgba(245, 158, 11, 0.1);
-  }
-  .sys-off {
-    color: var(--muted);
-    background: rgba(75, 85, 99, 0.1);
-  }
-  .sys-num {
-    color: var(--cyan);
-    background: rgba(6, 182, 212, 0.1);
-  }
+  .sys-ok { color: var(--green); background: rgba(16, 185, 129, 0.1); }
+  .sys-warn { color: var(--yellow); background: rgba(245, 158, 11, 0.1); }
+  .sys-off { color: var(--muted); background: rgba(75, 85, 99, 0.1); }
+  .sys-num { color: var(--cyan); background: rgba(6, 182, 212, 0.1); }
 
-  /* ── Activity Feed ───────────────────────────────────────────── */
   .feed-section {
-    grid-column: 1;
-    grid-row: 2;
     display: flex;
     flex-direction: column;
-    min-height: 0;
-    border-top: 1px solid var(--border);
+    min-height: 320px;
   }
 
   .feed-header {
@@ -608,7 +598,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px 24px;
+    padding: 14px 18px;
     border-bottom: 1px solid var(--border);
   }
 
@@ -621,6 +611,7 @@
   }
 
   .feed-count {
+    margin-left: auto;
     font-size: 0.55rem;
     font-weight: 700;
     padding: 2px 8px;
@@ -633,7 +624,8 @@
   .feed-scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 4px 0;
+    padding: 6px 0;
+    min-height: 0;
   }
 
   .feed-scroll::-webkit-scrollbar { width: 3px; }
@@ -644,20 +636,17 @@
     display: flex;
     align-items: flex-start;
     gap: 12px;
-    padding: 8px 24px;
+    padding: 10px 18px;
     border-left: 2px solid transparent;
     animation: slideIn 0.3s ease;
     transition: background 0.15s;
   }
 
-  .feed-row:hover {
-    background: rgba(255, 255, 255, 0.015);
-  }
-
-  .feed-row.type-info    { border-left-color: var(--cyan); }
+  .feed-row:hover { background: rgba(255, 255, 255, 0.015); }
+  .feed-row.type-info { border-left-color: var(--cyan); }
   .feed-row.type-success { border-left-color: var(--green); }
   .feed-row.type-warning { border-left-color: var(--yellow); }
-  .feed-row.type-error   { border-left-color: var(--red); }
+  .feed-row.type-error { border-left-color: var(--red); }
 
   .feed-dot {
     width: 6px;
@@ -667,21 +656,19 @@
     flex-shrink: 0;
   }
 
-  .dot-info    { background: var(--cyan); box-shadow: 0 0 6px var(--cyan-glow); }
+  .dot-info { background: var(--cyan); box-shadow: 0 0 6px var(--cyan-glow); }
   .dot-success { background: var(--green); box-shadow: 0 0 6px var(--green-glow); }
   .dot-warning { background: var(--yellow); box-shadow: 0 0 6px var(--yellow-glow); }
-  .dot-error   { background: var(--red); box-shadow: 0 0 6px rgba(239,68,68,0.3); }
+  .dot-error { background: var(--red); box-shadow: 0 0 6px rgba(239,68,68,0.3); }
 
-  .feed-body {
-    flex: 1;
-    min-width: 0;
-  }
+  .feed-body { flex: 1; min-width: 0; }
 
   .feed-top-line {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-bottom: 2px;
+    flex-wrap: wrap;
   }
 
   .feed-agent-name {
@@ -691,9 +678,9 @@
     letter-spacing: 0.5px;
   }
 
-  .feed-agent-sai   { color: var(--purple); }
-  .feed-agent-cody  { color: var(--cyan); }
-  .feed-agent-rory  { color: var(--blue); }
+  .feed-agent-sai { color: var(--purple); }
+  .feed-agent-cody { color: var(--cyan); }
+  .feed-agent-rory { color: var(--blue); }
   .feed-agent-jamal { color: var(--green); }
 
   .feed-time {
@@ -709,15 +696,53 @@
     word-break: break-word;
   }
 
-  /* ── Activity Feed in sidebar ────────────────────────────────── */
   .sidebar-feed {
-    flex: 1;
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    min-height: 280px;
   }
 
-  /* ── Empty state ─────────────────────────────────────────────── */
+  .cron-list {
+    padding: 12px;
+  }
+
+  .cron-job {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--glass-border);
+  }
+
+  .cron-job:last-child { margin-bottom: 0; }
+
+  .cron-job-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+
+  .cron-job-name {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--text);
+    word-break: break-word;
+  }
+
+  .cron-job-status {
+    font-size: 0.55rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  .cron-job-meta {
+    font-size: 0.58rem;
+    color: var(--muted);
+  }
+
   .empty-feed {
     display: flex;
     flex-direction: column;
@@ -731,39 +756,66 @@
   .empty-feed i { width: 24px; height: 24px; opacity: 0.3; }
   .empty-feed span { font-size: 0.7rem; opacity: 0.5; }
 
-  /* ── Responsive ──────────────────────────────────────────────── */
-  @media (max-width: 1100px) {
-    .agents-grid { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 1280px) {
+    .agents-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 
-  @media (max-width: 860px) {
+  @media (max-width: 980px) {
     .main-content {
       grid-template-columns: 1fr;
-      grid-template-rows: auto auto 1fr;
+      grid-template-areas:
+        'main'
+        'sidebar';
     }
+
     .sidebar {
-      grid-column: 1;
-      grid-row: 2;
-      border-left: none;
-      border-top: 1px solid var(--border);
-      max-height: 200px;
+      position: static;
+      top: auto;
     }
-    .sidebar-feed { display: none; }
-    .feed-section { grid-row: 3; }
+  }
+
+  @media (max-width: 720px) {
+    :root {
+      --page-pad: 16px;
+      --section-gap: 16px;
+    }
+
+    header {
+      padding: 12px 16px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .header-divider { display: none; }
+    .metrics-bar { width: 100%; gap: 16px; }
+    .header-right { width: 100%; justify-content: flex-start; }
+    .agents-section { padding: 16px; }
+    .feed-header { padding: 14px 16px; }
+    .feed-row { padding: 10px 16px; }
+    .system-panel { padding: 16px; }
+    .sys-item { align-items: flex-start; }
+    .sys-value { margin-top: 2px; }
   }
 
   @media (max-width: 600px) {
     .agents-grid { grid-template-columns: 1fr; }
-    header { padding: 12px 16px; gap: 12px; flex-wrap: wrap; }
-    .agents-section { padding: 16px; }
-    .feed-row { padding: 6px 16px; }
-    .metrics-bar { gap: 16px; }
+    .card-header,
+    .token-bar-header,
+    .card-meta,
+    .cron-job-top {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .model-pill,
+    .token-pct,
+    .sys-value,
+    .cron-job-status { white-space: normal; }
   }
 </style>
 </head>
 <body>
 
-<!-- Header -->
 <header>
   <div class="logo-group">
     <div class="logo-icon">⚡</div>
@@ -802,36 +854,33 @@
   </div>
 </header>
 
-<!-- Main Content -->
 <div class="main-content">
-
-  <!-- Agent Cards -->
-  <div class="agents-section">
-    <div class="section-label">
-      <i data-lucide="cpu"></i>
-      Agent Status
-    </div>
-    <div class="agents-grid" id="agents-grid"></div>
-  </div>
-
-  <!-- Activity Feed -->
-  <div class="feed-section">
-    <div class="feed-header">
-      <i data-lucide="activity" style="width:14px;height:14px;color:var(--muted)"></i>
-      <span class="feed-title">Activity Feed</span>
-      <span class="feed-count" id="feed-count">0</span>
-    </div>
-    <div class="feed-scroll" id="feed-list">
-      <div class="empty-feed" id="feed-empty">
-        <i data-lucide="radio"></i>
-        <span>Waiting for events...</span>
+  <div class="content-column">
+    <section class="panel agents-section">
+      <div class="section-label">
+        <i data-lucide="cpu"></i>
+        Agent Status
       </div>
-    </div>
+      <div class="agents-grid" id="agents-grid"></div>
+    </section>
+
+    <section class="panel feed-section">
+      <div class="feed-header">
+        <i data-lucide="activity" style="width:14px;height:14px;color:var(--muted)"></i>
+        <span class="feed-title">Activity Feed</span>
+        <span class="feed-count" id="feed-count">0</span>
+      </div>
+      <div class="feed-scroll" id="feed-list">
+        <div class="empty-feed" id="feed-empty">
+          <i data-lucide="radio"></i>
+          <span>Waiting for events...</span>
+        </div>
+      </div>
+    </section>
   </div>
 
-  <!-- Right Sidebar -->
-  <div class="sidebar">
-    <div class="system-panel">
+  <aside class="sidebar">
+    <section class="panel system-panel">
       <div class="section-label">
         <i data-lucide="server"></i>
         System
@@ -888,25 +937,23 @@
           <span class="sys-value sys-off" id="sys-version-badge">-</span>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- Sidebar feed (cron jobs list) -->
-    <div class="sidebar-feed">
+    <section class="panel sidebar-feed">
       <div class="feed-header">
         <i data-lucide="list" style="width:14px;height:14px;color:var(--muted)"></i>
         <span class="feed-title">Cron Schedule</span>
       </div>
-      <div class="feed-scroll" id="cron-list" style="padding: 8px 12px;">
+      <div class="feed-scroll cron-list" id="cron-list">
         <div class="empty-feed">
           <span>Loading cron jobs...</span>
         </div>
       </div>
-    </div>
-  </div>
+    </section>
+  </aside>
 </div>
 
 <script>
-// ── State ─────────────────────────────────────────────────────────
 const agentState = {};
 let feedItems = [];
 
@@ -917,25 +964,24 @@ const AGENT_META = {
   jamal: { emoji: '✅', name: 'Jamal', colorVar: '--green' },
 };
 
-// ── Helpers ───────────────────────────────────────────────────────
 function relTime(ts) {
   if (!ts) return 'never';
   const d = Math.floor((Date.now() - ts) / 1000);
-  if (d < 5)    return 'just now';
-  if (d < 60)   return `${d}s ago`;
-  if (d < 3600) return `${Math.floor(d/60)}m ago`;
-  if (d < 86400) return `${Math.floor(d/3600)}h ago`;
-  return `${Math.floor(d/86400)}d ago`;
+  if (d < 5) return 'just now';
+  if (d < 60) return `${d}s ago`;
+  if (d < 3600) return `${Math.floor(d / 60)}m ago`;
+  if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
+  return `${Math.floor(d / 86400)}d ago`;
 }
 
 function shortTime(ts) {
   if (!ts) return '-';
   const d = Math.floor((Date.now() - ts) / 1000);
-  if (d < 5)    return 'now';
-  if (d < 60)   return `${d}s`;
-  if (d < 3600) return `${Math.floor(d/60)}m`;
-  if (d < 86400) return `${Math.floor(d/3600)}h`;
-  return `${Math.floor(d/86400)}d`;
+  if (d < 5) return 'now';
+  if (d < 60) return `${d}s`;
+  if (d < 3600) return `${Math.floor(d / 60)}m`;
+  if (d < 86400) return `${Math.floor(d / 3600)}h`;
+  return `${Math.floor(d / 86400)}d`;
 }
 
 function fmtUptime(ms) {
@@ -953,7 +999,7 @@ function fmtTokens(n) {
 }
 
 function esc(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function modelInfo(model) {
@@ -964,14 +1010,13 @@ function modelInfo(model) {
   else if (m.includes('gpt')) cls = 'model-gpt';
   else if (m.includes('unknown')) cls = 'model-unknown';
 
-  let text = model
+  const text = model
     .replace(/^anthropic\//i, '')
     .replace(/^openai\//i, '');
 
   return { text, cls };
 }
 
-// ── Render Agents ─────────────────────────────────────────────────
 function renderAgents(agents) {
   const grid = document.getElementById('agents-grid');
   agents.forEach(a => {
@@ -996,8 +1041,8 @@ function renderAgents(agents) {
             <div class="status-dot ${a.status}"></div>
           </div>
           <div class="card-name-group">
-            <span class="card-name">${a.name}</span>
-            <span class="card-role">${a.role || ''}</span>
+            <span class="card-name">${esc(a.name)}</span>
+            <span class="card-role">${esc(a.role || '')}</span>
           </div>
         </div>
         <span class="model-pill ${model.cls}">${esc(model.text)}</span>
@@ -1017,7 +1062,7 @@ function renderAgents(agents) {
           </div>
         </div>
         <div class="card-meta">
-          <span>${a.sessionCount || 0} session${(a.sessionCount||0) !== 1 ? 's' : ''}</span>
+          <span>${a.sessionCount || 0} session${(a.sessionCount || 0) !== 1 ? 's' : ''}</span>
           <span class="last-seen" data-ts="${a.lastSeen || ''}">${relTime(a.lastSeen)}</span>
         </div>
       </div>
@@ -1025,7 +1070,6 @@ function renderAgents(agents) {
   });
 }
 
-// ── Render Feed ───────────────────────────────────────────────────
 function makeFeedRow(item, animate) {
   const div = document.createElement('div');
   div.className = `feed-row type-${item.type || 'info'}`;
@@ -1055,7 +1099,7 @@ function renderFeedBatch(items) {
   list.innerHTML = '';
   items.forEach(item => list.appendChild(makeFeedRow(item, false)));
   document.getElementById('feed-count').textContent = items.length;
-  requestAnimationFrame(() => list.scrollTop = list.scrollHeight);
+  requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
 }
 
 function renderFeedItem(item) {
@@ -1064,10 +1108,9 @@ function renderFeedItem(item) {
   if (empty) empty.remove();
 
   list.appendChild(makeFeedRow(item, true));
-  requestAnimationFrame(() => list.scrollTop = list.scrollHeight);
+  requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
 }
 
-// ── Render Metrics ────────────────────────────────────────────────
 function renderMetrics(m) {
   document.getElementById('m-sessions').textContent = m.totalSessions || m.activeSessions || 0;
   document.getElementById('m-agents').textContent = m.activeAgents || 0;
@@ -1077,11 +1120,38 @@ function renderMetrics(m) {
   }
 }
 
-// ── Render System ─────────────────────────────────────────────────
+function renderCronList(cronJobs) {
+  const cronList = document.getElementById('cron-list');
+
+  if (!cronJobs || cronJobs.length === 0) {
+    cronList.innerHTML = `
+      <div class="empty-feed">
+        <span>No cron jobs scheduled</span>
+      </div>
+    `;
+    return;
+  }
+
+  cronList.innerHTML = '';
+  cronJobs.forEach(job => {
+    const div = document.createElement('div');
+    div.className = 'cron-job';
+    const statusColor = job.status === 'ok' ? 'var(--green)' : 'var(--muted)';
+    div.innerHTML = `
+      <div class="cron-job-top">
+        <span class="cron-job-name">${esc(job.name || 'Unnamed')}</span>
+        <span class="cron-job-status" style="color:${statusColor}">${esc(job.status || 'idle')}</span>
+      </div>
+      <div class="cron-job-meta">${esc(job.schedule || '')}</div>
+      ${job.next ? `<div class="cron-job-meta" style="margin-top:3px">Next: ${esc(job.next)}</div>` : ''}
+    `;
+    cronList.appendChild(div);
+  });
+}
+
 function renderSystem(sys) {
   if (!sys) return;
 
-  // Version
   const versionLabel = document.getElementById('version-label');
   const versionDetail = document.getElementById('sys-version');
   const versionBadge = document.getElementById('sys-version-badge');
@@ -1093,7 +1163,6 @@ function renderSystem(sys) {
     versionBadge.className = 'sys-value sys-num';
   }
 
-  // TTS
   const ttsStatus = document.getElementById('sys-tts-status');
   const ttsDetail = document.getElementById('sys-tts-detail');
   if (sys.ttsStatus === 'ok') {
@@ -1107,44 +1176,17 @@ function renderSystem(sys) {
     ttsDetail.textContent = sys.ttsModel.replace(/-/g, ' ');
   }
 
-  // Gateway
-  document.getElementById('sys-gateway-detail').textContent = `Port ${sys.gatewayPort}`;
-
-  // Cron
-  document.getElementById('sys-cron-count').textContent = sys.cronCount || 0;
-  const cronDetail = document.getElementById('sys-cron-detail');
-  if (sys.cronCount > 0) {
-    cronDetail.textContent = `${sys.cronCount} scheduled task${sys.cronCount !== 1 ? 's' : ''}`;
+  if (sys.gatewayPort) {
+    document.getElementById('sys-gateway-detail').textContent = `Port ${sys.gatewayPort}`;
   }
 
-  // Render cron list in sidebar
-  if (sys.cronJobs && sys.cronJobs.length > 0) {
-    const cronList = document.getElementById('cron-list');
-    cronList.innerHTML = '';
-    sys.cronJobs.forEach(job => {
-      const div = document.createElement('div');
-      div.style.cssText = `
-        padding: 8px 10px;
-        margin-bottom: 6px;
-        border-radius: 8px;
-        background: rgba(255,255,255,0.02);
-        border: 1px solid var(--glass-border);
-      `;
-      const statusColor = job.status === 'ok' ? 'var(--green)' : 'var(--muted)';
-      div.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-          <span style="font-size:0.68rem;font-weight:600;color:var(--text)">${esc(job.name || 'Unnamed')}</span>
-          <span style="font-size:0.55rem;font-weight:600;color:${statusColor};text-transform:uppercase">${job.status || 'idle'}</span>
-        </div>
-        <div style="font-size:0.58rem;color:var(--muted)">${esc(job.schedule || '')}</div>
-        ${job.next ? `<div style="font-size:0.55rem;color:var(--muted);margin-top:2px">Next: ${esc(job.next)}</div>` : ''}
-      `;
-      cronList.appendChild(div);
-    });
-  }
+  const cronCount = Number(sys.cronCount || (Array.isArray(sys.cronJobs) ? sys.cronJobs.length : 0) || 0);
+  document.getElementById('sys-cron-count').textContent = cronCount;
+  document.getElementById('sys-cron-detail').textContent = 'Scheduled tasks';
+
+  renderCronList(sys.cronJobs || []);
 }
 
-// ── Timestamp ticker ──────────────────────────────────────────────
 setInterval(() => {
   document.querySelectorAll('[data-ts]').forEach(el => {
     const ts = parseInt(el.dataset.ts, 10);
@@ -1154,7 +1196,6 @@ setInterval(() => {
   });
 }, 5000);
 
-// ── SSE ───────────────────────────────────────────────────────────
 let es;
 function connect() {
   const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -1198,7 +1239,6 @@ function connect() {
 
 connect();
 
-// Init Lucide icons
 document.addEventListener('DOMContentLoaded', () => {
   if (window.lucide) lucide.createIcons();
 });
