@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sai Operations Dashboard</title>
+<style>
+  /* ── Reset & base ─────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d1117;
+    --surface:   #161b22;
+    --border:    #30363d;
+    --text:      #e6edf3;
+    --muted:     #8b949e;
+    --green:     #3fb950;
+    --yellow:    #d29922;
+    --orange:    #db6d28;
+    --red:       #f85149;
+    --blue:      #58a6ff;
+    --purple:    #bc8cff;
+    --green-bg:  rgba(63,185,80,.12);
+    --yellow-bg: rgba(210,153,34,.12);
+    --orange-bg: rgba(219,109,40,.12);
+    --gray-bg:   rgba(139,148,158,.1);
+    --radius:    10px;
+    --gap:       16px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: var(--gap);
+  }
+
+  /* ── Header ───────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--gap);
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-icon {
+    font-size: 1.6rem;
+    line-height: 1;
+  }
+
+  .logo-text {
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: .5px;
+  }
+
+  .logo-sub {
+    font-size: .72rem;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .live-dot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: .75rem;
+    color: var(--green);
+    font-weight: 600;
+    letter-spacing: .5px;
+  }
+
+  .pulse {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: .4; transform: scale(.7); }
+  }
+
+  .uptime-badge {
+    font-size: .72rem;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 20px;
+  }
+
+  /* ── Metric bar ───────────────────────────────────────────── */
+  .metric-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--gap);
+    margin-bottom: var(--gap);
+  }
+
+  .metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .metric-label {
+    font-size: .7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .8px;
+  }
+
+  .metric-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  .metric-value.green  { color: var(--green); }
+  .metric-value.yellow { color: var(--yellow); }
+  .metric-value.red    { color: var(--red); }
+  .metric-value.blue   { color: var(--blue); }
+
+  /* ── Main grid ────────────────────────────────────────────── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: var(--gap);
+    align-items: start;
+  }
+
+  /* ── Agent cards ──────────────────────────────────────────── */
+  .agents-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--gap);
+  }
+
+  .agent-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    transition: border-color .3s, box-shadow .3s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .agent-card::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    border-radius: var(--radius) 0 0 var(--radius);
+    background: var(--border);
+    transition: background .3s;
+  }
+
+  .agent-card.status-ACTIVE  { border-color: rgba(63,185,80,.35);  box-shadow: 0 0 0 1px rgba(63,185,80,.08); }
+  .agent-card.status-ACTIVE::before  { background: var(--green); }
+  .agent-card.status-IDLE    { border-color: rgba(210,153,34,.35); }
+  .agent-card.status-IDLE::before    { background: var(--yellow); }
+  .agent-card.status-WAITING { border-color: rgba(219,109,40,.35); }
+  .agent-card.status-WAITING::before { background: var(--orange); }
+  .agent-card.status-OFFLINE { opacity: .6; }
+
+  .agent-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .agent-identity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .agent-emoji { font-size: 1.4rem; }
+
+  .agent-name {
+    font-size: .95rem;
+    font-weight: 700;
+  }
+
+  .status-badge {
+    font-size: .65rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 20px;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+  }
+
+  .badge-ACTIVE  { background: var(--green-bg);  color: var(--green); }
+  .badge-IDLE    { background: var(--yellow-bg); color: var(--yellow); }
+  .badge-WAITING { background: var(--orange-bg); color: var(--orange); }
+  .badge-OFFLINE { background: var(--gray-bg);   color: var(--muted); }
+
+  .agent-task {
+    font-size: .8rem;
+    color: var(--text);
+    min-height: 1.1em;
+    line-height: 1.4;
+    margin-bottom: 8px;
+  }
+
+  .agent-task.none { color: var(--muted); font-style: italic; }
+
+  .agent-lastseen {
+    font-size: .68rem;
+    color: var(--muted);
+  }
+
+  /* active shimmer */
+  @keyframes shimmer {
+    0%   { opacity: 1; }
+    50%  { opacity: .55; }
+    100% { opacity: 1; }
+  }
+  .agent-card.status-ACTIVE .agent-task { animation: shimmer 2.5s ease-in-out infinite; }
+
+  /* ── Activity Feed ────────────────────────────────────────── */
+  .feed-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    height: 460px;
+  }
+
+  .feed-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: .75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  .feed-count {
+    font-size: .68rem;
+    background: var(--border);
+    padding: 2px 7px;
+    border-radius: 10px;
+    color: var(--muted);
+  }
+
+  .feed-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+    display: flex;
+    flex-direction: column-reverse; /* newest at bottom, scroll anchored */
+  }
+
+  .feed-list::-webkit-scrollbar { width: 4px; }
+  .feed-list::-webkit-scrollbar-track { background: transparent; }
+  .feed-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .feed-item {
+    display: flex;
+    gap: 10px;
+    padding: 6px 14px;
+    align-items: flex-start;
+    animation: fadeIn .35s ease;
+    transition: background .15s;
+  }
+
+  .feed-item:hover { background: rgba(255,255,255,.03); }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .feed-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 5px;
+  }
+
+  .dot-info    { background: var(--blue); }
+  .dot-success { background: var(--green); }
+  .dot-warning { background: var(--yellow); }
+  .dot-error   { background: var(--red); }
+
+  .feed-body { flex: 1; min-width: 0; }
+
+  .feed-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+  }
+
+  .feed-agent {
+    font-size: .68rem;
+    font-weight: 700;
+    color: var(--purple);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+  }
+
+  .feed-time {
+    font-size: .65rem;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  .feed-msg {
+    font-size: .78rem;
+    color: var(--text);
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  /* ── Bottom row ───────────────────────────────────────────── */
+  .bottom-row {
+    margin-top: var(--gap);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap);
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+
+  .panel-title {
+    font-size: .72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--muted);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* API info panel */
+  .api-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+  .api-table td { padding: 5px 0; vertical-align: top; }
+  .api-table td:first-child { color: var(--muted); width: 90px; }
+  .api-method { display: inline-block; font-size: .65rem; font-weight: 700;
+    padding: 1px 6px; border-radius: 4px; margin-right: 4px; }
+  .method-GET  { background: rgba(88,166,255,.15); color: var(--blue); }
+  .method-POST { background: rgba(63,185,80,.15);  color: var(--green); }
+  code {
+    font-family: 'SF Mono', 'Fira Mono', monospace;
+    font-size: .75rem;
+    background: rgba(255,255,255,.06);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  /* Connection status */
+  #conn-status { font-size: .72rem; }
+  #conn-status.connected    { color: var(--green); }
+  #conn-status.disconnected { color: var(--red); }
+  #conn-status.connecting   { color: var(--yellow); }
+
+  /* ── Responsive ───────────────────────────────────────────── */
+  @media (max-width: 900px) {
+    .main-grid { grid-template-columns: 1fr; }
+    .feed-panel { height: 320px; }
+  }
+
+  @media (max-width: 600px) {
+    .metric-bar { grid-template-columns: repeat(2, 1fr); }
+    .agents-grid { grid-template-columns: 1fr; }
+    .bottom-row  { grid-template-columns: 1fr; }
+    .header-right .uptime-badge { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    <div>
+      <div class="logo-text">Sai Operations</div>
+      <div class="logo-sub">OpenClaw · Live Dashboard</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span id="conn-status" class="connecting">● Connecting…</span>
+    <div class="live-dot"><div class="pulse"></div>LIVE</div>
+    <div class="uptime-badge" id="uptime-badge">Uptime: —</div>
+  </div>
+</header>
+
+<!-- ── Metric bar ───────────────────────────────────────────────── -->
+<div class="metric-bar">
+  <div class="metric-card">
+    <div class="metric-label">Tasks Completed</div>
+    <div class="metric-value green" id="m-completed">—</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Active Tasks</div>
+    <div class="metric-value yellow" id="m-active">—</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Failed Tasks</div>
+    <div class="metric-value red" id="m-failed">—</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Messages Processed</div>
+    <div class="metric-value blue" id="m-messages">—</div>
+  </div>
+</div>
+
+<!-- ── Main grid ────────────────────────────────────────────────── -->
+<div class="main-grid">
+
+  <!-- Agents -->
+  <div class="agents-grid" id="agents-grid">
+    <!-- Populated by JS -->
+  </div>
+
+  <!-- Feed -->
+  <div class="feed-panel">
+    <div class="feed-header">
+      Activity Feed
+      <span class="feed-count" id="feed-count">0</span>
+    </div>
+    <div class="feed-list" id="feed-list">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Bottom row ───────────────────────────────────────────────── -->
+<div class="bottom-row">
+  <div class="panel">
+    <div class="panel-title">Integration API</div>
+    <table class="api-table">
+      <tr>
+        <td>Stream</td>
+        <td>
+          <span class="api-method method-GET">GET</span>
+          <code>/api/stream</code> — SSE endpoint
+        </td>
+      </tr>
+      <tr>
+        <td>State</td>
+        <td>
+          <span class="api-method method-GET">GET</span>
+          <code>/api/state</code> — Full snapshot
+        </td>
+      </tr>
+      <tr>
+        <td>Update agent</td>
+        <td>
+          <span class="api-method method-POST">POST</span>
+          <code>/api/agent/:id</code>
+        </td>
+      </tr>
+      <tr>
+        <td>Push event</td>
+        <td>
+          <span class="api-method method-POST">POST</span>
+          <code>/api/event</code>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Quick Notes</div>
+    <div style="font-size:.78rem; color: var(--muted); line-height: 1.7;">
+      Connect OpenClaw to this dashboard by <code>POST /api/event</code> with<br>
+      <code>{ agentId, type, message }</code> — types: <code>info</code> · <code>success</code> · <code>warning</code> · <code>error</code>.<br><br>
+      Update agent status via <code>POST /api/agent/sai</code> with<br>
+      <code>{ status, task }</code> — statuses: <code>ACTIVE</code> · <code>IDLE</code> · <code>WAITING</code> · <code>OFFLINE</code>.
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────
+const agentState = {};
+let feedItems = [];
+
+// ── Helpers ──────────────────────────────────────────────────────
+function formatRelTime(ts) {
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 5)   return 'just now';
+  if (diff < 60)  return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  return `${Math.floor(diff/3600)}h ago`;
+}
+
+function formatUptime(ms) {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sc = s % 60;
+  if (h > 0) return `${h}h ${m}m ${sc}s`;
+  if (m > 0) return `${m}m ${sc}s`;
+  return `${sc}s`;
+}
+
+function agentLabel(id) {
+  return agentState[id]?.name ?? id;
+}
+
+// ── Render agents ─────────────────────────────────────────────────
+function renderAgents(agents) {
+  const grid = document.getElementById('agents-grid');
+  agents.forEach(a => {
+    agentState[a.id] = a;
+    let card = document.getElementById(`agent-${a.id}`);
+    if (!card) {
+      card = document.createElement('div');
+      card.id = `agent-${a.id}`;
+      card.className = 'agent-card';
+      grid.appendChild(card);
+    }
+    card.className = `agent-card status-${a.status}`;
+    card.innerHTML = `
+      <div class="agent-header">
+        <div class="agent-identity">
+          <span class="agent-emoji">${a.emoji}</span>
+          <span class="agent-name">${a.name}</span>
+        </div>
+        <span class="status-badge badge-${a.status}">${a.status}</span>
+      </div>
+      <div class="agent-task ${a.task ? '' : 'none'}">${a.task ?? 'No active task'}</div>
+      <div class="agent-lastseen" data-ts="${a.lastSeen}">Last seen: ${formatRelTime(a.lastSeen)}</div>
+    `;
+  });
+}
+
+// ── Render feed ───────────────────────────────────────────────────
+function renderFeedItem(item, prepend = false) {
+  const list = document.getElementById('feed-list');
+  const div = document.createElement('div');
+  div.className = 'feed-item';
+  div.innerHTML = `
+    <div class="feed-dot dot-${item.type ?? 'info'}"></div>
+    <div class="feed-body">
+      <div class="feed-meta">
+        <span class="feed-agent">${agentLabel(item.agentId)}</span>
+        <span class="feed-time" data-ts="${item.ts}">${formatRelTime(item.ts)}</span>
+      </div>
+      <div class="feed-msg">${escapeHtml(item.message)}</div>
+    </div>
+  `;
+  if (prepend) {
+    list.insertBefore(div, list.firstChild);
+  } else {
+    list.appendChild(div);
+  }
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderFeedBatch(items) {
+  const list = document.getElementById('feed-list');
+  list.innerHTML = '';
+  // feed-list is column-reverse, so append in order = newest at bottom
+  items.forEach(item => renderFeedItem(item));
+  document.getElementById('feed-count').textContent = items.length;
+}
+
+// ── Update metrics ────────────────────────────────────────────────
+function renderMetrics(m) {
+  document.getElementById('m-completed').textContent = m.tasksCompleted.toLocaleString();
+  document.getElementById('m-active').textContent    = m.tasksActive.toLocaleString();
+  document.getElementById('m-failed').textContent    = m.tasksFailed.toLocaleString();
+  document.getElementById('m-messages').textContent  = m.messagesProcessed.toLocaleString();
+  if (m.uptimeMs != null) {
+    document.getElementById('uptime-badge').textContent = 'Uptime: ' + formatUptime(m.uptimeMs);
+  }
+}
+
+// ── Relative time ticker ──────────────────────────────────────────
+setInterval(() => {
+  document.querySelectorAll('[data-ts]').forEach(el => {
+    const ts = parseInt(el.dataset.ts, 10);
+    if (!isNaN(ts)) el.textContent = formatRelTime(ts);
+  });
+  // Restore prefix for last-seen elements
+  document.querySelectorAll('.agent-lastseen[data-ts]').forEach(el => {
+    const ts = parseInt(el.dataset.ts, 10);
+    if (!isNaN(ts)) el.textContent = 'Last seen: ' + formatRelTime(ts);
+  });
+}, 5000);
+
+// ── SSE connection ────────────────────────────────────────────────
+let es;
+function connect() {
+  setStatus('connecting');
+  es = new EventSource('/api/stream');
+
+  es.addEventListener('agents', e => {
+    renderAgents(JSON.parse(e.data));
+  });
+
+  es.addEventListener('metrics', e => {
+    renderMetrics(JSON.parse(e.data));
+  });
+
+  es.addEventListener('feed', e => {
+    feedItems = JSON.parse(e.data);
+    renderFeedBatch(feedItems);
+  });
+
+  es.addEventListener('activity', e => {
+    const item = JSON.parse(e.data);
+    feedItems.push(item);
+    if (feedItems.length > 200) feedItems.shift();
+    renderFeedItem(item, false);
+    document.getElementById('feed-count').textContent = feedItems.length;
+    // Re-sort: feed-list uses column-reverse so newest is at bottom visually
+    // No action needed — new items appended = bottom = newest
+  });
+
+  es.onopen  = () => setStatus('connected');
+  es.onerror = () => { setStatus('disconnected'); es.close(); setTimeout(connect, 3000); };
+}
+
+function setStatus(s) {
+  const el = document.getElementById('conn-status');
+  el.className = s;
+  el.textContent = s === 'connected' ? '● Connected' : s === 'connecting' ? '● Connecting…' : '● Disconnected';
+}
+
+connect();
+</script>
+</body>
+</html>
