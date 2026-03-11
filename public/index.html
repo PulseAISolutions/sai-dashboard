@@ -901,7 +901,7 @@
             <div class="sys-icon heartbeat"><i data-lucide="heart-pulse"></i></div>
             <div class="sys-info">
               <span class="sys-label">Heartbeat</span>
-              <span class="sys-detail">qwen3:4b · every 4h</span>
+              <span class="sys-detail" id="sys-heartbeat-detail">Loading...</span>
             </div>
           </div>
           <span class="sys-value sys-ok" id="sys-heartbeat">Active</span>
@@ -1182,7 +1182,18 @@ function renderSystem(sys) {
 
   const cronCount = Number(sys.cronCount || (Array.isArray(sys.cronJobs) ? sys.cronJobs.length : 0) || 0);
   document.getElementById('sys-cron-count').textContent = cronCount;
-  document.getElementById('sys-cron-detail').textContent = 'Scheduled tasks';
+  document.getElementById('sys-cron-detail').textContent = cronCount === 1 ? '1 scheduled task' : `${cronCount} scheduled tasks`;
+
+  const hbDetail = document.getElementById('sys-heartbeat-detail');
+  const hbBadge = document.getElementById('sys-heartbeat');
+  hbDetail.textContent = `${sys.heartbeatModel || 'unknown'} · every ${sys.heartbeatInterval || 'unknown'}`;
+  const hbEnabled = sys.heartbeatInterval && sys.heartbeatInterval !== 'disabled';
+  hbBadge.textContent = hbEnabled ? 'Active' : 'Disabled';
+  hbBadge.className = `sys-value ${hbEnabled ? 'sys-ok' : 'sys-off'}`;
+
+  const gatewayBadge = document.getElementById('sys-gateway-status');
+  gatewayBadge.textContent = 'Online';
+  gatewayBadge.className = 'sys-value sys-ok';
 
   renderCronList(sys.cronJobs || []);
 }
@@ -1198,9 +1209,7 @@ setInterval(() => {
 
 let es;
 function connect() {
-  const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? ''
-    : 'https://desktop-5dudqn2.tail13bd98.ts.net';
+  const API_BASE = '';
   es = new EventSource(API_BASE + '/api/stream');
 
   es.addEventListener('agents', e => renderAgents(JSON.parse(e.data)));
@@ -1239,8 +1248,17 @@ function connect() {
 
 connect();
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   if (window.lucide) lucide.createIcons();
+  try {
+    const res = await fetch('/api/state');
+    const data = await res.json();
+    renderAgents(data.agents || []);
+    renderMetrics(data.metrics || {});
+    renderSystem(data.system || {});
+    feedItems = data.feed || [];
+    renderFeedBatch(feedItems);
+  } catch (_) {}
 });
 </script>
 </body>
