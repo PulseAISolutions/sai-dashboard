@@ -1432,6 +1432,27 @@ if (params.get('api')) {
 }
 
 let es;
+let statePoll;
+
+async function refreshState() {
+  const res = await fetch((activeApiBase || '') + '/api/state', { cache: 'no-store' });
+  const data = await res.json();
+  renderAgents(data.agents || []);
+  renderMetrics(data.metrics || {});
+  renderSystem(data.system || {});
+  feedItems = data.feed || [];
+  renderFeedBatch(feedItems);
+}
+
+function startStatePolling() {
+  if (statePoll) clearInterval(statePoll);
+  statePoll = setInterval(async () => {
+    try {
+      await refreshState();
+    } catch (_) {}
+  }, 1000);
+}
+
 function connect() {
   es = new EventSource(activeApiBase + '/api/stream');
 
@@ -1485,16 +1506,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     connect();
-
-    const res = await fetch((activeApiBase || '') + '/api/state');
-    const data = await res.json();
-    renderAgents(data.agents || []);
-    renderMetrics(data.metrics || {});
-    renderSystem(data.system || {});
-    feedItems = data.feed || [];
-    renderFeedBatch(feedItems);
+    startStatePolling();
+    await refreshState();
   } catch (_) {
     connect();
+    startStatePolling();
   }
 });
 </script>
