@@ -1207,9 +1207,16 @@ setInterval(() => {
   });
 }, 5000);
 
+const params = new URLSearchParams(window.location.search);
+const savedApiBase = window.localStorage.getItem('sai_api_base') || '';
+const requestedApiBase = params.get('api') || window.SAI_API_BASE || savedApiBase || '';
+const API_BASE = requestedApiBase.replace(/\/$/, '');
+if (params.get('api')) {
+  window.localStorage.setItem('sai_api_base', API_BASE);
+}
+
 let es;
 function connect() {
-  const API_BASE = '';
   es = new EventSource(API_BASE + '/api/stream');
 
   es.addEventListener('agents', e => renderAgents(JSON.parse(e.data)));
@@ -1251,7 +1258,7 @@ connect();
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.lucide) lucide.createIcons();
   try {
-    const res = await fetch('/api/state');
+    const res = await fetch(API_BASE + '/api/state');
     const data = await res.json();
     renderAgents(data.agents || []);
     renderMetrics(data.metrics || {});
