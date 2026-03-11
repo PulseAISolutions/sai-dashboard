@@ -265,11 +265,69 @@ function fetchOpenClawStatus() {
 
 function normalizeCronStatus(raw) {
   const s = String(raw || '').toLowerCase();
-  if (!s) return 'idle';
+  if (!s) return 'scheduled';
   if (s.includes('ok') || s.includes('success')) return 'ok';
   if (s.includes('error') || s.includes('fail') || s.includes('timeout')) return 'error';
   if (s.includes('run')) return 'running';
   return s;
+}
+
+function formatDuration(ms) {
+  const totalMs = safeNumber(ms);
+  if (!totalMs) return '';
+
+  const totalSeconds = Math.round(totalMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+}
+
+function formatCronSchedule(schedule) {
+  if (!schedule) return '';
+  if (typeof schedule === 'string') return schedule;
+
+  if (schedule.kind === 'cron') {
+    return schedule.tz ? `${schedule.expr} · ${schedule.tz}` : (schedule.expr || 'cron');
+  }
+
+  if (schedule.kind === 'every') {
+    const every = formatDuration(schedule.everyMs);
+    const anchor = schedule.anchorMs ? ` from ${new Date(schedule.anchorMs).toLocaleString()}` : '';
+    return every ? `Every ${every}${anchor}` : 'Every interval';
+  }
+
+  if (schedule.kind === 'at') {
+    return schedule.at ? `At ${new Date(schedule.at).toLocaleString()}` : 'One-time';
+  }
+
+  return schedule.kind || 'scheduled';
+}
+
+function formatCronNextRun(job) {
+  if (job.state?.runningAtMs) return 'Running now';
+  if (job.state?.nextRunAtMs) return new Date(job.state.nextRunAtMs).toLocaleString();
+  return job.next || '';
+}
+
+function deriveCronStatus(job) {
+  if (!job?.enabled) return 'disabled';
+  if (job?.state?.runningAtMs) return 'running';
+
+  const payloadKind = job?.payload?.kind || '';
+  const sessionTarget = job?.sessionTarget || '';
+  const rawStatus = normalizeCronStatus(job?.state?.lastStatus || job?.state?.lastRunStatus || job?.status);
+
+  if (payloadKind === 'systemEvent' && sessionTarget === 'main') {
+    return rawStatus === 'running' ? 'running' : 'scheduled';
+  }
+
+  return rawStatus;
 }
 
 function fetchCronList() {
@@ -454,12 +512,17 @@ async function updateSystem(statusData) {
   system.ttsModel = tts.model || system.ttsVoice;
 
   const crons = await fetchCronList();
-  system.cronJobs = crons.map(job => ({
-    ...job,
-    schedule: job.schedule?.expr || job.schedule?.kind || job.schedule || '',
-    next: job.state?.nextRunAtMs ? new Date(job.state.nextRunAtMs).toLocaleString() : (job.next || ''),
-    status: normalizeCronStatus(job.state?.lastStatus || job.state?.lastRunStatus || job.status),
-  }));
+  system.cronJobs = crons.map(job => {
+    const status = deriveCronStatus(job);
+    const shouldShowError = status === 'error';
+    return {
+      ...job,
+      schedule: formatCronSchedule(job.schedule),
+      next: formatCronNextRun(job),
+      status,
+      error: shouldShowError ? (job.state?.lastError || '') : '',
+    };
+  });
   system.cronCount = system.cronJobs.length;
 
   const heartbeat = statusData?.heartbeat?.agents || [];
