@@ -1351,7 +1351,13 @@ function renderCronList(cronJobs) {
   cronJobs.forEach(job => {
     const div = document.createElement('div');
     div.className = 'cron-job';
-    const statusColor = job.status === 'ok' ? 'var(--green)' : 'var(--muted)';
+    const statusColor = job.status === 'ok'
+      ? 'var(--green)'
+      : job.status === 'error'
+        ? 'var(--red)'
+        : job.status === 'running'
+          ? 'var(--yellow)'
+          : 'var(--muted)';
     div.innerHTML = `
       <div class="cron-job-top">
         <span class="cron-job-name">${esc(job.name || 'Unnamed')}</span>
@@ -1359,6 +1365,7 @@ function renderCronList(cronJobs) {
       </div>
       <div class="cron-job-meta">${esc(job.schedule || '')}</div>
       ${job.next ? `<div class="cron-job-meta" style="margin-top:3px">Next: ${esc(job.next)}</div>` : ''}
+      ${job.error ? `<div class="cron-job-meta" style="margin-top:3px; color: var(--red)">Error: ${esc(job.error)}</div>` : ''}
     `;
     cronList.appendChild(div);
   });
