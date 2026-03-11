@@ -1357,7 +1357,11 @@ function renderCronList(cronJobs) {
         ? 'var(--red)'
         : job.status === 'running'
           ? 'var(--yellow)'
-          : 'var(--muted)';
+          : job.status === 'scheduled'
+            ? 'var(--cyan)'
+            : job.status === 'disabled'
+              ? 'var(--muted)'
+              : 'var(--muted)';
     div.innerHTML = `
       <div class="cron-job-top">
         <span class="cron-job-name">${esc(job.name || 'Unnamed')}</span>
