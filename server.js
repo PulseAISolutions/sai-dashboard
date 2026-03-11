@@ -137,6 +137,21 @@ function round(value, places = 1) {
   return Math.round(value * factor) / factor;
 }
 
+function parseAgentFromSessionKey(key) {
+  const match = String(key || '').match(/^agent:([^:]+):/i);
+  if (!match) return null;
+  const agentId = match[1].toLowerCase();
+  return agentId === 'main' ? 'sai' : agentId;
+}
+
+function humanizeSubagentTask(session) {
+  const key = String(session?.key || '');
+  if (!key.includes(':subagent:')) return null;
+  const mappedAgent = parseAgentFromSessionKey(key);
+  const role = agents[mappedAgent]?.role || 'Subagent';
+  return `${role} task active`;
+}
+
 function computeUsageInsights(allRecent) {
   const sessions = Array.isArray(allRecent) ? allRecent : [];
   const totalInputTokens = sessions.reduce((sum, s) => sum + safeNumber(s.inputTokens), 0);
@@ -351,19 +366,18 @@ function updateFromOpenClaw(data) {
       s.key && s.key.includes(':subagent:') && (s.age == null || s.age < 300000)
     );
     for (const sub of activeSubagents) {
-      const model = (sub.model || '').toLowerCase();
-      let mappedAgent = null;
-      if (model.includes('gpt')) mappedAgent = agents.cody;
-      else if (model.includes('sonnet')) mappedAgent = agents.rory;
-      else if (model.includes('opus')) mappedAgent = agents.jamal;
-      if (mappedAgent && mappedAgent.status !== 'ACTIVE') {
+      const subAgentId = parseAgentFromSessionKey(sub.key);
+      const mappedAgent = subAgentId ? agents[subAgentId] : null;
+      if (mappedAgent) {
         mappedAgent.status = 'ACTIVE';
         mappedAgent.model = sub.model || mappedAgent.model;
-        mappedAgent.percentUsed = sub.percentUsed || 0;
-        mappedAgent.totalTokens = sub.totalTokens || 0;
+        mappedAgent.percentUsed = safeNumber(sub.percentUsed);
+        mappedAgent.totalTokens = safeNumber(sub.totalTokens);
+        mappedAgent.contextTokens = safeNumber(sub.contextTokens) || mappedAgent.contextTokens;
         mappedAgent.inputTokens = safeNumber(sub.inputTokens);
         mappedAgent.outputTokens = safeNumber(sub.outputTokens);
         mappedAgent.lastSeen = sub.updatedAt || Date.now();
+        mappedAgent.task = humanizeSubagentTask(sub);
       }
     }
 
@@ -408,21 +422,22 @@ function updateFromOpenClaw(data) {
   for (const session of allRecent) {
     if (!session.key) continue;
     const age = session.age || Infinity;
+    if (!(session.key.includes(':subagent:') && age < 300000)) continue;
 
-    if (session.key.includes('subagent') && age < 300000) {
-      const subModel = session.model || '';
-      if (subModel.includes('opus')) {
-        if (agents.cody.status === 'OFFLINE') {
-          agents.cody.status = 'ACTIVE';
-          agents.cody.model = subModel;
-          agents.cody.task = 'Active sub-agent session';
-          agents.cody.lastSeen = session.updatedAt;
-          if (session.percentUsed != null) agents.cody.percentUsed = session.percentUsed;
-          if (session.totalTokens != null) agents.cody.totalTokens = session.totalTokens;
-          if (session.inputTokens != null) agents.cody.inputTokens = session.inputTokens;
-          if (session.outputTokens != null) agents.cody.outputTokens = session.outputTokens;
-        }
-      }
+    const subAgentId = parseAgentFromSessionKey(session.key);
+    const mappedAgent = subAgentId ? agents[subAgentId] : null;
+    if (!mappedAgent) continue;
+
+    if (mappedAgent.status !== 'ACTIVE') {
+      mappedAgent.status = 'ACTIVE';
+      mappedAgent.model = session.model || mappedAgent.model;
+      mappedAgent.task = humanizeSubagentTask(session);
+      mappedAgent.lastSeen = session.updatedAt;
+      if (session.percentUsed != null) mappedAgent.percentUsed = session.percentUsed;
+      if (session.totalTokens != null) mappedAgent.totalTokens = session.totalTokens;
+      if (session.contextTokens != null) mappedAgent.contextTokens = session.contextTokens;
+      if (session.inputTokens != null) mappedAgent.inputTokens = session.inputTokens;
+      if (session.outputTokens != null) mappedAgent.outputTokens = session.outputTokens;
     }
   }
 
