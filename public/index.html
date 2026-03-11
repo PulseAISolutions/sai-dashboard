@@ -1258,7 +1258,21 @@ connect();
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.lucide) lucide.createIcons();
   try {
-    const res = await fetch(API_BASE + '/api/state');
+    let effectiveApiBase = API_BASE;
+    if (!effectiveApiBase) {
+      const infoRes = await fetch('/tunnel-info.json', { cache: 'no-store' });
+      if (infoRes.ok) {
+        const info = await infoRes.json();
+        if (info && info.apiBase) effectiveApiBase = String(info.apiBase).replace(/\/$/, '');
+      }
+    }
+    if (effectiveApiBase && effectiveApiBase !== API_BASE) {
+      window.localStorage.setItem('sai_api_base', effectiveApiBase);
+      if (!es || es.readyState === EventSource.CLOSED) {
+        connect();
+      }
+    }
+    const res = await fetch((effectiveApiBase || API_BASE) + '/api/state');
     const data = await res.json();
     renderAgents(data.agents || []);
     renderMetrics(data.metrics || {});
