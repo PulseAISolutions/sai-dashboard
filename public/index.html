@@ -489,6 +489,104 @@
     color: var(--muted);
   }
 
+  .usage-panel,
+  .team-panel,
+  .system-panel {
+    padding: 20px;
+  }
+
+  .usage-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  .usage-card {
+    padding: 14px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--glass-border);
+    min-width: 0;
+  }
+
+  .usage-label {
+    font-size: 0.58rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 700;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .usage-value {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.2;
+    word-break: break-word;
+  }
+
+  .usage-value.highlight { color: var(--cyan); }
+  .usage-value.warning { color: var(--yellow); }
+  .usage-value.good { color: var(--green); }
+
+  .usage-note {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(124, 58, 237, 0.16);
+    background: linear-gradient(135deg, rgba(124,58,237,0.1), rgba(6,182,212,0.06));
+  }
+
+  .usage-note-title {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .usage-note-copy,
+  .usage-footnote {
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  .usage-footnote {
+    margin-top: 10px;
+    color: var(--muted);
+  }
+
+  .contract-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .contract-item {
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--glass-border);
+  }
+
+  .contract-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .contract-summary {
+    font-size: 0.67rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+
   .sidebar {
     grid-area: sidebar;
     display: flex;
@@ -499,10 +597,6 @@
     position: sticky;
     top: 24px;
     align-self: start;
-  }
-
-  .system-panel {
-    padding: 20px;
   }
 
   .sys-grid {
@@ -789,16 +883,16 @@
     .header-divider { display: none; }
     .metrics-bar { width: 100%; gap: 16px; }
     .header-right { width: 100%; justify-content: flex-start; }
-    .agents-section { padding: 16px; }
+    .agents-section, .usage-panel, .team-panel, .system-panel { padding: 16px; }
     .feed-header { padding: 14px 16px; }
     .feed-row { padding: 10px 16px; }
-    .system-panel { padding: 16px; }
     .sys-item { align-items: flex-start; }
     .sys-value { margin-top: 2px; }
   }
 
   @media (max-width: 600px) {
-    .agents-grid { grid-template-columns: 1fr; }
+    .agents-grid,
+    .usage-grid { grid-template-columns: 1fr; }
     .card-header,
     .token-bar-header,
     .card-meta,
@@ -862,6 +956,52 @@
         Agent Status
       </div>
       <div class="agents-grid" id="agents-grid"></div>
+    </section>
+
+    <section class="panel usage-panel">
+      <div class="section-label">
+        <i data-lucide="gauge"></i>
+        Usage & Forecast
+      </div>
+      <div class="usage-grid">
+        <div class="usage-card">
+          <div class="usage-label">Total Input Tokens</div>
+          <div class="usage-value highlight" id="usage-input">0</div>
+        </div>
+        <div class="usage-card">
+          <div class="usage-label">Total Output Tokens</div>
+          <div class="usage-value highlight" id="usage-output">0</div>
+        </div>
+        <div class="usage-card">
+          <div class="usage-label">Main Session Utilization</div>
+          <div class="usage-value" id="usage-utilization">Insufficient data</div>
+        </div>
+        <div class="usage-card">
+          <div class="usage-label">Burn Rate</div>
+          <div class="usage-value" id="usage-burn-rate">Insufficient data</div>
+        </div>
+        <div class="usage-card">
+          <div class="usage-label">Projected Time To Full Context</div>
+          <div class="usage-value" id="usage-eta">Insufficient data</div>
+        </div>
+        <div class="usage-card">
+          <div class="usage-label">Forecast Confidence</div>
+          <div class="usage-value" id="usage-confidence">Waiting for sample</div>
+        </div>
+      </div>
+      <div class="usage-note">
+        <div class="usage-note-title">Heuristic</div>
+        <div class="usage-note-copy" id="usage-note-copy">Using recent session totals to estimate context pressure.</div>
+      </div>
+      <div class="usage-footnote" id="usage-footnote">No usage sample yet.</div>
+    </section>
+
+    <section class="panel team-panel">
+      <div class="section-label">
+        <i data-lucide="users"></i>
+        Team Pattern
+      </div>
+      <div class="contract-list" id="team-contracts"></div>
     </section>
 
     <section class="panel feed-section">
@@ -998,6 +1138,21 @@ function fmtTokens(n) {
   return String(n);
 }
 
+function fmtRate(n) {
+  if (!n) return 'Insufficient data';
+  return `${fmtTokens(n)}/hr`;
+}
+
+function fmtMinutes(minutes) {
+  if (minutes == null || !isFinite(minutes)) return 'Insufficient data';
+  if (minutes <= 0) return 'Context full';
+  if (minutes < 60) return `${Math.round(minutes)} min`;
+  const hours = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  if (!mins) return `${hours}h`;
+  return `${hours}h ${mins}m`;
+}
+
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
@@ -1118,6 +1273,66 @@ function renderMetrics(m) {
   if (m.uptimeMs != null) {
     document.getElementById('m-uptime').textContent = fmtUptime(m.uptimeMs);
   }
+  renderUsage(m.usage || {});
+}
+
+function renderUsage(usage) {
+  document.getElementById('usage-input').textContent = fmtTokens(usage.totalInputTokens || 0);
+  document.getElementById('usage-output').textContent = fmtTokens(usage.totalOutputTokens || 0);
+
+  const utilizationEl = document.getElementById('usage-utilization');
+  if (usage.currentUtilizationPercent != null) {
+    utilizationEl.textContent = `${Number(usage.currentUtilizationPercent).toFixed(1)}%`;
+    utilizationEl.className = `usage-value ${usage.currentUtilizationPercent >= 80 ? 'warning' : 'good'}`;
+  } else {
+    utilizationEl.textContent = 'Insufficient data';
+    utilizationEl.className = 'usage-value';
+  }
+
+  const burnRateEl = document.getElementById('usage-burn-rate');
+  burnRateEl.textContent = fmtRate(usage.burnRateTokensPerHour);
+  burnRateEl.className = `usage-value ${usage.burnRateTokensPerHour ? 'highlight' : ''}`.trim();
+
+  const etaEl = document.getElementById('usage-eta');
+  etaEl.textContent = fmtMinutes(usage.projectedMinutesToFullContext);
+  etaEl.className = `usage-value ${usage.projectedMinutesToFullContext != null ? 'warning' : ''}`.trim();
+
+  const confidenceEl = document.getElementById('usage-confidence');
+  const sample = Number(usage.recentSessionSample || 0);
+  if (sample >= 4) {
+    confidenceEl.textContent = `Stable sample · ${sample} sessions`;
+    confidenceEl.className = 'usage-value good';
+  } else if (sample > 0) {
+    confidenceEl.textContent = `Light sample · ${sample} sessions`;
+    confidenceEl.className = 'usage-value warning';
+  } else {
+    confidenceEl.textContent = 'Waiting for sample';
+    confidenceEl.className = 'usage-value';
+  }
+
+  document.getElementById('usage-note-copy').textContent = usage.forecastNote || 'Using recent session totals to estimate context pressure.';
+
+  const footnoteParts = [];
+  if (usage.currentContextTokens) footnoteParts.push(`Known context: ${fmtTokens(usage.currentContextTokens)} tokens`);
+  if (usage.activeMainSessionTokens) footnoteParts.push(`Main session load: ${fmtTokens(usage.activeMainSessionTokens)}`);
+  if (usage.burnRateWindowMinutes) footnoteParts.push(`Window: last ${usage.burnRateWindowMinutes} min`);
+  document.getElementById('usage-footnote').textContent = footnoteParts.length ? footnoteParts.join(' · ') : 'No usage sample yet.';
+}
+
+function renderTeamContracts(contracts) {
+  const container = document.getElementById('team-contracts');
+  if (!container) return;
+  const items = Array.isArray(contracts) ? contracts : [];
+  if (!items.length) {
+    container.innerHTML = '<div class="contract-item"><div class="contract-summary">No team contract data loaded.</div></div>';
+    return;
+  }
+  container.innerHTML = items.map(item => `
+    <div class="contract-item">
+      <div class="contract-title">${esc(item.title || item.id || 'Role')}</div>
+      <div class="contract-summary">${esc(item.summary || '')}</div>
+    </div>
+  `).join('');
 }
 
 function renderCronList(cronJobs) {
@@ -1196,6 +1411,7 @@ function renderSystem(sys) {
   gatewayBadge.className = 'sys-value sys-ok';
 
   renderCronList(sys.cronJobs || []);
+  renderTeamContracts(sys.teamContracts || []);
 }
 
 setInterval(() => {
@@ -1210,14 +1426,14 @@ setInterval(() => {
 const params = new URLSearchParams(window.location.search);
 const savedApiBase = window.localStorage.getItem('sai_api_base') || '';
 const requestedApiBase = params.get('api') || window.SAI_API_BASE || savedApiBase || '';
-const API_BASE = requestedApiBase.replace(/\/$/, '');
+let activeApiBase = requestedApiBase.replace(/\/$/, '');
 if (params.get('api')) {
-  window.localStorage.setItem('sai_api_base', API_BASE);
+  window.localStorage.setItem('sai_api_base', activeApiBase);
 }
 
 let es;
 function connect() {
-  es = new EventSource(API_BASE + '/api/stream');
+  es = new EventSource(activeApiBase + '/api/stream');
 
   es.addEventListener('agents', e => renderAgents(JSON.parse(e.data)));
   es.addEventListener('metrics', e => renderMetrics(JSON.parse(e.data)));
@@ -1253,33 +1469,33 @@ function connect() {
   };
 }
 
-connect();
-
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.lucide) lucide.createIcons();
   try {
-    let effectiveApiBase = API_BASE;
-    if (!effectiveApiBase) {
+    if (!activeApiBase) {
       const infoRes = await fetch('/tunnel-info.json', { cache: 'no-store' });
       if (infoRes.ok) {
         const info = await infoRes.json();
-        if (info && info.apiBase) effectiveApiBase = String(info.apiBase).replace(/\/$/, '');
+        if (info && info.apiBase) activeApiBase = String(info.apiBase).replace(/\/$/, '');
       }
     }
-    if (effectiveApiBase && effectiveApiBase !== API_BASE) {
-      window.localStorage.setItem('sai_api_base', effectiveApiBase);
-      if (!es || es.readyState === EventSource.CLOSED) {
-        connect();
-      }
+
+    if (activeApiBase) {
+      window.localStorage.setItem('sai_api_base', activeApiBase);
     }
-    const res = await fetch((effectiveApiBase || API_BASE) + '/api/state');
+
+    connect();
+
+    const res = await fetch((activeApiBase || '') + '/api/state');
     const data = await res.json();
     renderAgents(data.agents || []);
     renderMetrics(data.metrics || {});
     renderSystem(data.system || {});
     feedItems = data.feed || [];
     renderFeedBatch(feedItems);
-  } catch (_) {}
+  } catch (_) {
+    connect();
+  }
 });
 </script>
 </body>

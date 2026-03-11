@@ -42,6 +42,29 @@ const AGENT_DEFS = {
   jamal: { id: 'jamal', name: 'Jamal', emoji: '✅', role: 'Tester',        defaultModel: 'claude-opus-4-6',    fallback: 'gpt-5.4' },
 };
 
+const TEAM_CONTRACTS = [
+  {
+    id: 'sai',
+    title: 'Sai · Orchestrate',
+    summary: 'Owns routing, context, and final delivery. Delegates specialized work and keeps the operator loop clean.',
+  },
+  {
+    id: 'cody',
+    title: 'Cody · Build',
+    summary: 'Implements code and product changes directly in-repo with practical scope control and clean handoff notes.',
+  },
+  {
+    id: 'rory',
+    title: 'Rory · Research',
+    summary: 'Finds facts, options, benchmarks, and synthesis before execution decisions or external-facing claims.',
+  },
+  {
+    id: 'jamal',
+    title: 'Jamal · Verify',
+    summary: 'Checks quality, regressions, and actionability before outputs are treated as ready.',
+  },
+];
+
 // ── In-memory state ──────────────────────────────────────────────────────────
 
 const agents = {};
@@ -72,6 +95,7 @@ const system = {
   gatewayPort: GATEWAY_PORT,
   openclawVersion,
   gatewayUptime: Date.now(),
+  teamContracts: TEAM_CONTRACTS,
 };
 
 const metrics = {
@@ -80,10 +104,116 @@ const metrics = {
   activeAgents: 0,
   totalTokensUsed: 0,
   uptime: Date.now(),
+  usage: {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    activeMainSessionKey: null,
+    activeMainSessionAgeMs: null,
+    activeMainSessionTokens: 0,
+    currentUtilizationPercent: null,
+    currentContextTokens: null,
+    burnRateTokensPerHour: null,
+    burnRateWindowMinutes: null,
+    projectedMinutesToFullContext: null,
+    projectedEtaIso: null,
+    forecastStatus: 'insufficient_data',
+    forecastNote: 'Insufficient data',
+    recentSessionSample: 0,
+  },
 };
 
 const MAX_FEED = 200;
 const activityFeed = [];
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function safeNumber(value) {
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
+function round(value, places = 1) {
+  if (!Number.isFinite(value)) return null;
+  const factor = 10 ** places;
+  return Math.round(value * factor) / factor;
+}
+
+function computeUsageInsights(allRecent) {
+  const sessions = Array.isArray(allRecent) ? allRecent : [];
+  const totalInputTokens = sessions.reduce((sum, s) => sum + safeNumber(s.inputTokens), 0);
+  const totalOutputTokens = sessions.reduce((sum, s) => sum + safeNumber(s.outputTokens), 0);
+
+  const mainCandidates = sessions
+    .filter(s => (s.key || '').includes(':main'))
+    .sort((a, b) => safeNumber(a.age) - safeNumber(b.age));
+
+  const activeMain = mainCandidates.find(s => safeNumber(s.age) < 300000) || mainCandidates[0] || null;
+  const currentUtilizationPercent = activeMain && activeMain.percentUsed != null
+    ? safeNumber(activeMain.percentUsed)
+    : null;
+  const currentContextTokens = activeMain && activeMain.contextTokens != null
+    ? safeNumber(activeMain.contextTokens)
+    : null;
+  const activeMainSessionTokens = activeMain ? safeNumber(activeMain.totalTokens) : 0;
+
+  const burnSessions = sessions.filter(s => {
+    const age = safeNumber(s.age);
+    const totalTokens = safeNumber(s.totalTokens);
+    return age > 0 && age <= 6 * 60 * 60 * 1000 && totalTokens > 0;
+  });
+
+  let burnRateTokensPerHour = null;
+  let burnRateWindowMinutes = null;
+
+  if (burnSessions.length > 0) {
+    const weightedTotal = burnSessions.reduce((sum, s) => sum + safeNumber(s.totalTokens), 0);
+    const weightedHours = burnSessions.reduce((sum, s) => {
+      const ageHours = Math.max(safeNumber(s.age) / 3600000, 0.08);
+      return sum + Math.min(ageHours, 6);
+    }, 0);
+
+    if (weightedHours > 0) {
+      burnRateTokensPerHour = weightedTotal / weightedHours;
+      const oldestAgeMs = burnSessions.reduce((max, s) => Math.max(max, safeNumber(s.age)), 0);
+      burnRateWindowMinutes = round(oldestAgeMs / 60000, 0);
+    }
+  }
+
+  let projectedMinutesToFullContext = null;
+  let projectedEtaIso = null;
+  let forecastStatus = 'insufficient_data';
+  let forecastNote = 'Insufficient data';
+
+  if (activeMain && currentContextTokens && currentContextTokens > 0 && burnRateTokensPerHour && burnRateTokensPerHour > 0) {
+    const remainingTokens = Math.max(currentContextTokens - activeMainSessionTokens, 0);
+    const minutes = remainingTokens === 0 ? 0 : (remainingTokens / burnRateTokensPerHour) * 60;
+    projectedMinutesToFullContext = round(minutes, 0);
+    projectedEtaIso = new Date(Date.now() + minutes * 60000).toISOString();
+    forecastStatus = remainingTokens === 0 ? 'full' : 'ok';
+    forecastNote = remainingTokens === 0
+      ? 'Main session is at or above known context capacity.'
+      : 'Simple projection based on recent token totals across active sessions.';
+  } else if (activeMain && currentUtilizationPercent != null) {
+    forecastStatus = 'limited';
+    forecastNote = 'Utilization is available, but burn rate is too sparse for a stable ETA.';
+  }
+
+  return {
+    totalInputTokens,
+    totalOutputTokens,
+    activeMainSessionKey: activeMain?.key || null,
+    activeMainSessionAgeMs: activeMain?.age != null ? safeNumber(activeMain.age) : null,
+    activeMainSessionTokens,
+    currentUtilizationPercent: currentUtilizationPercent != null ? round(currentUtilizationPercent, 1) : null,
+    currentContextTokens: currentContextTokens || null,
+    burnRateTokensPerHour: burnRateTokensPerHour != null ? round(burnRateTokensPerHour, 0) : null,
+    burnRateWindowMinutes,
+    projectedMinutesToFullContext,
+    projectedEtaIso,
+    forecastStatus,
+    forecastNote,
+    recentSessionSample: burnSessions.length,
+  };
+}
 
 // ── SSE ──────────────────────────────────────────────────────────────────────
 
@@ -133,7 +263,6 @@ function fetchCronList() {
       if (!error && stdout.trim()) {
         try {
           const parsed = JSON.parse(stdout.trim());
-          // Handle { jobs: [...], total: N } format
           if (parsed.jobs && Array.isArray(parsed.jobs)) {
             return resolve(parsed.jobs);
           }
@@ -141,7 +270,6 @@ function fetchCronList() {
           return resolve([parsed]);
         } catch (_) {}
       }
-      // Fallback: parse text output
       exec('openclaw cron list', { timeout: 10000 }, (err2, out2) => {
         if (err2) return resolve([]);
         const clean = (out2 || '').replace(/\x1b\[[0-9;]*m/g, '');
@@ -183,16 +311,16 @@ function updateFromOpenClaw(data) {
   const byAgent = data?.sessions?.byAgent || [];
   const allRecent = data?.sessions?.recent || [];
 
-  // Reset all agents to offline first
   for (const agent of Object.values(agents)) {
     agent.status = 'OFFLINE';
     agent.task = null;
     agent.percentUsed = 0;
     agent.totalTokens = 0;
+    agent.inputTokens = 0;
+    agent.outputTokens = 0;
     agent.sessionCount = 0;
   }
 
-  // Map agent data from sessions
   for (const agentGroup of byAgent) {
     const agentId = agentGroup.agentId;
     const agent = agents[agentId] || agents[
@@ -205,12 +333,10 @@ function updateFromOpenClaw(data) {
 
     if (sessions.length === 0) continue;
 
-    // Find the most relevant session (non-cron, most recent)
     const primarySession = sessions.find(s =>
       s.key && !s.key.includes(':cron:') && !s.key.includes(':run:')
     ) || sessions[0];
 
-    // Status based on age and session type
     const age = primarySession.age != null ? primarySession.age : Infinity;
     const isMainSession = (primarySession.key || '').includes(':main');
     if (age < (isMainSession ? 300000 : 120000)) {
@@ -221,7 +347,6 @@ function updateFromOpenClaw(data) {
       agent.status = 'OFFLINE';
     }
 
-    // Detect active subagent sessions and mark the matching agent as ACTIVE
     const activeSubagents = allRecent.filter(s =>
       s.key && s.key.includes(':subagent:') && (s.age == null || s.age < 300000)
     );
@@ -236,17 +361,16 @@ function updateFromOpenClaw(data) {
         mappedAgent.model = sub.model || mappedAgent.model;
         mappedAgent.percentUsed = sub.percentUsed || 0;
         mappedAgent.totalTokens = sub.totalTokens || 0;
+        mappedAgent.inputTokens = safeNumber(sub.inputTokens);
+        mappedAgent.outputTokens = safeNumber(sub.outputTokens);
         mappedAgent.lastSeen = sub.updatedAt || Date.now();
       }
     }
-    const subagentSession = activeSubagents[0] || null;
 
-    // Model
     if (primarySession.model) {
       agent.model = primarySession.model;
     }
 
-    // Token usage
     if (primarySession.percentUsed != null) {
       agent.percentUsed = primarySession.percentUsed;
     }
@@ -263,12 +387,10 @@ function updateFromOpenClaw(data) {
       agent.outputTokens = primarySession.outputTokens;
     }
 
-    // Last seen
     if (primarySession.updatedAt) {
       agent.lastSeen = primarySession.updatedAt;
     }
 
-    // Task from session key
     if (agent.status === 'ACTIVE' || agent.status === 'IDLE') {
       const key = primarySession.key || '';
       if (key.includes('subagent')) {
@@ -283,18 +405,13 @@ function updateFromOpenClaw(data) {
     }
   }
 
-  // Check for active subagents that map to cody/rory/jamal
   for (const session of allRecent) {
     if (!session.key) continue;
     const age = session.age || Infinity;
 
-    // Subagent sessions are under main but may represent cody/rory/jamal
     if (session.key.includes('subagent') && age < 300000) {
-      // This is a subagent — mark as Cody (most likely) or check label
-      // For now, if there's an active subagent, at least one sub-agent is busy
       const subModel = session.model || '';
       if (subModel.includes('opus')) {
-        // Could be Cody on opus or Jamal
         if (agents.cody.status === 'OFFLINE') {
           agents.cody.status = 'ACTIVE';
           agents.cody.model = subModel;
@@ -302,16 +419,18 @@ function updateFromOpenClaw(data) {
           agents.cody.lastSeen = session.updatedAt;
           if (session.percentUsed != null) agents.cody.percentUsed = session.percentUsed;
           if (session.totalTokens != null) agents.cody.totalTokens = session.totalTokens;
+          if (session.inputTokens != null) agents.cody.inputTokens = session.inputTokens;
+          if (session.outputTokens != null) agents.cody.outputTokens = session.outputTokens;
         }
       }
     }
   }
 
-  // Update metrics
   metrics.totalSessions = data?.sessions?.count || 0;
   metrics.activeSessions = allRecent.filter(s => (s.age || Infinity) < 300000).length;
   metrics.activeAgents = Object.values(agents).filter(a => a.status === 'ACTIVE' || a.status === 'IDLE').length;
   metrics.totalTokensUsed = allRecent.reduce((sum, s) => sum + (s.totalTokens || 0), 0);
+  metrics.usage = computeUsageInsights(allRecent);
 }
 
 async function updateSystem(statusData) {
@@ -346,7 +465,6 @@ async function pollAll() {
       updateFromOpenClaw(data);
       await updateSystem(data);
 
-      // Generate activity events for state changes
       const stateKey = Object.values(agents).map(a => `${a.id}:${a.status}`).join('|');
       if (lastFeedState && stateKey !== lastFeedState) {
         for (const agent of Object.values(agents)) {
@@ -366,6 +484,7 @@ async function pollAll() {
       ...metrics,
       uptimeMs: Date.now() - metrics.uptime,
     });
+    broadcast('system', system);
   } catch (e) {
     console.error('Poll error:', e.message);
   }
@@ -377,19 +496,15 @@ async function pollSystem() {
   broadcast('system', system);
 }
 
-// Poll agents every 8 seconds, system every 30 seconds
 setInterval(pollAll, 8000);
 setInterval(pollSystem, 30000);
 
-// Initial polls
 setTimeout(async () => {
   await pollAll();
   await pollSystem();
-  // Push initial startup event
   pushEvent('sai', 'info', 'Dashboard connected — polling live data');
 }, 1000);
 
-// Uptime ticker every second
 setInterval(() => {
   broadcast('metrics', {
     ...metrics,
