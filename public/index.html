@@ -1160,7 +1160,10 @@ setInterval(() => {
 // ── SSE ───────────────────────────────────────────────────────────
 let es;
 function connect() {
-  es = new EventSource('/api/stream');
+  const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? ''
+    : 'https://desktop-5dudqn2.tail13bd98.ts.net';
+  es = new EventSource(API_BASE + '/api/stream');
 
   es.addEventListener('agents', e => renderAgents(JSON.parse(e.data)));
   es.addEventListener('metrics', e => renderMetrics(JSON.parse(e.data)));
