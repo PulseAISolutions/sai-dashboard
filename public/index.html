@@ -3,273 +3,764 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sai Ops</title>
+<title>Sai Ops Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg:      #0a0c0f;
-    --surface: #0f1217;
-    --border:  #1c2128;
-    --text:    #dde3ea;
-    --muted:   #566270;
-    --green:   #22c55e;
-    --yellow:  #eab308;
-    --orange:  #f97316;
-    --red:     #ef4444;
-    --blue:    #3b82f6;
-    --purple:  #a78bfa;
+    --bg: #06060c;
+    --bg2: #0a0a14;
+    --surface: rgba(14, 14, 24, 0.7);
+    --surface-solid: #0e0e18;
+    --glass: rgba(18, 18, 32, 0.55);
+    --glass-border: rgba(255, 255, 255, 0.06);
+    --glass-border-hover: rgba(255, 255, 255, 0.1);
+    --border: rgba(255, 255, 255, 0.05);
+    --text: #e8eaf0;
+    --text-secondary: #9ca3af;
+    --muted: #4b5563;
+    --purple: #7c3aed;
+    --purple-glow: rgba(124, 58, 237, 0.25);
+    --cyan: #06b6d4;
+    --cyan-glow: rgba(6, 182, 212, 0.25);
+    --green: #10b981;
+    --green-glow: rgba(16, 185, 129, 0.25);
+    --yellow: #f59e0b;
+    --yellow-glow: rgba(245, 158, 11, 0.2);
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --radius: 16px;
+    --radius-sm: 10px;
   }
 
   html, body {
     height: 100%;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
   }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: var(--bg);
-    color: var(--text);
     display: flex;
     flex-direction: column;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(124, 58, 237, 0.08) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 100%, rgba(6, 182, 212, 0.05) 0%, transparent 50%),
+      var(--bg);
   }
 
-  /* ── Header ─────────────────────────────────────────────────── */
+  /* ── Animations ──────────────────────────────────────────────── */
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes glow { 0%, 100% { box-shadow: 0 0 8px var(--green-glow); } 50% { box-shadow: 0 0 16px var(--green-glow), 0 0 32px rgba(16,185,129,0.1); } }
+  @keyframes pulseYellow { 0%, 100% { box-shadow: 0 0 8px var(--yellow-glow); } 50% { box-shadow: 0 0 16px var(--yellow-glow); } }
+  @keyframes shimmer { 0%, 100% { opacity: 0.9; } 50% { opacity: 0.5; } }
+  @keyframes gradientShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+  @keyframes borderPulse {
+    0%, 100% { border-color: rgba(124,58,237,0.2); }
+    50% { border-color: rgba(6,182,212,0.3); }
+  }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+
+  /* ── Header ──────────────────────────────────────────────────── */
   header {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 11px 20px;
-    border-bottom: 1px solid var(--border);
-    flex-wrap: wrap;
+    gap: 20px;
+    padding: 16px 28px;
+    background: var(--surface);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--glass-border);
+    z-index: 10;
   }
 
-  .logo {
-    font-size: 0.9rem;
-    font-weight: 700;
-    letter-spacing: -0.2px;
-    white-space: nowrap;
-  }
-  .logo-sub { color: var(--muted); font-weight: 400; }
-
-  .divider {
-    width: 1px;
-    height: 16px;
-    background: var(--border);
-    flex-shrink: 0;
-  }
-
-  .metrics {
-    display: flex;
-    gap: 14px;
-  }
-
-  .metric {
-    display: flex;
-    align-items: baseline;
-    gap: 4px;
-    font-size: 0.78rem;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .metric-val { font-weight: 700; }
-  .metric-lbl { color: var(--muted); font-size: 0.7rem; }
-
-  .m-done   .metric-val { color: var(--green); }
-  .m-active .metric-val { color: var(--yellow); }
-  .m-failed .metric-val { color: var(--red); }
-
-  .spacer { flex: 1; }
-
-  #uptime {
-    font-size: 0.7rem;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-
-  #conn-status {
-    font-size: 0.72rem;
-    white-space: nowrap;
-  }
-  #conn-status.connected    { color: var(--green); }
-  #conn-status.disconnected { color: var(--red); }
-  #conn-status.connecting   { color: var(--yellow); }
-
-  .live {
+  .logo-group {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--purple), var(--cyan));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 900;
+    color: white;
+    box-shadow: 0 0 20px var(--purple-glow);
+  }
+
+  .logo-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .logo-title {
+    font-size: 0.95rem;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    background: linear-gradient(135deg, #e8eaf0 30%, var(--purple) 70%, var(--cyan));
+    background-size: 200% 200%;
+    animation: gradientShift 6s ease infinite;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .logo-version {
+    font-size: 0.6rem;
+    color: var(--muted);
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+
+  .header-divider {
+    width: 1px;
+    height: 28px;
+    background: var(--border);
+  }
+
+  /* ── Metrics Bar ─────────────────────────────────────────────── */
+  .metrics-bar {
+    display: flex;
+    gap: 24px;
+    flex: 1;
+  }
+
+  .metric-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .metric-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .metric-label {
+    font-size: 0.6rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+  }
+
+  .mv-sessions { color: var(--cyan); }
+  .mv-agents { color: var(--green); }
+  .mv-tokens { color: var(--purple); }
+  .mv-uptime { color: var(--text-secondary); }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .uptime-display {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.5px;
+  }
+
+  .live-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 0.65rem;
     font-weight: 700;
-    letter-spacing: 0.8px;
-    color: var(--muted);
+    letter-spacing: 1.5px;
+    color: var(--green);
+    text-transform: uppercase;
   }
-  .pulse {
-    width: 6px; height: 6px;
+
+  .live-dot {
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: var(--green);
-    animation: pulse 1.8s ease-in-out infinite;
+    animation: glow 2s ease-in-out infinite;
   }
-  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.3;transform:scale(.65)} }
 
-  /* ── Agents ──────────────────────────────────────────────────── */
-  #agents-grid {
-    flex-shrink: 0;
+  .live-dot.disconnected {
+    background: var(--red);
+    animation: none;
+    box-shadow: 0 0 8px rgba(239,68,68,0.3);
+  }
+
+  /* ── Main Layout ─────────────────────────────────────────────── */
+  .main-content {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    grid-template-rows: auto 1fr;
+    gap: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* ── Agent Cards Grid ────────────────────────────────────────── */
+  .agents-section {
+    grid-column: 1;
+    grid-row: 1;
+    padding: 20px 24px;
+  }
+
+  .section-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-label i { width: 14px; height: 14px; }
+
+  .agents-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    border-bottom: 1px solid var(--border);
+    gap: 14px;
   }
 
-  .agent {
-    padding: 18px 20px 16px;
-    border-right: 1px solid var(--border);
+  .agent-card {
+    background: var(--glass);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    padding: 20px;
     position: relative;
-    transition: background 0.25s;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
   }
-  .agent:last-child { border-right: none; }
 
-  /* top status stripe */
-  .agent::before {
+  .agent-card::before {
     content: '';
     position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 3px;
-    background: var(--border);
-    transition: background 0.3s;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--purple), var(--cyan), transparent);
+    opacity: 0;
+    transition: opacity 0.4s;
   }
-  .agent.ACTIVE::before  { background: var(--green); }
-  .agent.IDLE::before    { background: var(--yellow); }
-  .agent.WAITING::before { background: var(--orange); }
 
-  .agent.ACTIVE  { background: rgba(34,197,94,.035); }
-  .agent.OFFLINE { opacity: 0.45; }
+  .agent-card:hover {
+    border-color: var(--glass-border-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
 
-  .agent-row {
+  .agent-card:hover::before { opacity: 1; }
+
+  .agent-card.ACTIVE {
+    border-color: rgba(16, 185, 129, 0.2);
+    box-shadow: 0 0 24px rgba(16, 185, 129, 0.06);
+    animation: borderPulse 4s ease-in-out infinite;
+  }
+
+  .agent-card.IDLE {
+    border-color: rgba(245, 158, 11, 0.15);
+  }
+
+  .agent-card.OFFLINE {
+    opacity: 0.45;
+  }
+
+  .card-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 9px;
+    margin-bottom: 16px;
   }
 
-  .agent-id {
+  .card-identity {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 10px;
   }
-  .agent-emoji { font-size: 1rem; line-height: 1; }
-  .agent-name  { font-size: 0.85rem; font-weight: 700; }
 
-  .agent-status {
-    font-size: 0.6rem;
+  .agent-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    position: relative;
+  }
+
+  .agent-avatar.sai { background: linear-gradient(135deg, rgba(124,58,237,0.2), rgba(6,182,212,0.15)); }
+  .agent-avatar.cody { background: linear-gradient(135deg, rgba(6,182,212,0.2), rgba(59,130,246,0.15)); }
+  .agent-avatar.rory { background: linear-gradient(135deg, rgba(59,130,246,0.2), rgba(124,58,237,0.15)); }
+  .agent-avatar.jamal { background: linear-gradient(135deg, rgba(16,185,129,0.2), rgba(6,182,212,0.15)); }
+
+  .status-dot {
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--surface-solid);
+  }
+
+  .status-dot.ACTIVE {
+    background: var(--green);
+    animation: glow 2s ease-in-out infinite;
+  }
+  .status-dot.IDLE {
+    background: var(--yellow);
+    animation: pulseYellow 2s ease-in-out infinite;
+  }
+  .status-dot.OFFLINE {
+    background: var(--muted);
+  }
+
+  .card-name-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .card-name {
+    font-size: 0.9rem;
     font-weight: 700;
-    letter-spacing: 0.9px;
+    letter-spacing: 0.3px;
+  }
+
+  .card-role {
+    font-size: 0.62rem;
+    color: var(--muted);
+    font-weight: 500;
     text-transform: uppercase;
+    letter-spacing: 0.8px;
   }
-  .ACTIVE  .agent-status { color: var(--green); }
-  .IDLE    .agent-status { color: var(--yellow); }
-  .WAITING .agent-status { color: var(--orange); }
-  .OFFLINE .agent-status { color: var(--muted); }
 
-  .agent-task {
-    font-size: 0.81rem;
+  .model-pill {
+    font-size: 0.58rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+
+  .model-claude {
+    color: var(--purple);
+    background: rgba(124, 58, 237, 0.1);
+    border: 1px solid rgba(124, 58, 237, 0.2);
+  }
+  .model-gpt {
+    color: var(--blue);
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+  }
+  .model-other {
+    color: var(--cyan);
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.2);
+  }
+  .model-unknown {
+    color: var(--muted);
+    background: rgba(75, 85, 99, 0.1);
+    border: 1px solid rgba(75, 85, 99, 0.2);
+  }
+
+  .card-status {
+    margin-bottom: 12px;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+
+  .badge-ACTIVE {
+    color: var(--green);
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+  }
+  .badge-IDLE {
+    color: var(--yellow);
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+  }
+  .badge-OFFLINE {
+    color: var(--muted);
+    background: rgba(75, 85, 99, 0.08);
+    border: 1px solid rgba(75, 85, 99, 0.15);
+  }
+
+  .card-task {
+    font-size: 0.75rem;
     line-height: 1.5;
-    color: var(--text);
-    min-height: 2.4em;
+    color: var(--text-secondary);
+    min-height: 1.4em;
+    margin-top: 6px;
   }
-  .agent-task.empty { color: var(--muted); font-style: italic; }
+  .card-task.empty {
+    color: var(--muted);
+    font-style: italic;
+    opacity: 0.5;
+  }
+  .ACTIVE .card-task:not(.empty) {
+    animation: shimmer 3s ease-in-out infinite;
+    color: var(--text);
+  }
 
-  @keyframes shimmer { 0%,100%{opacity:1} 50%{opacity:.55} }
-  .agent.ACTIVE .agent-task { animation: shimmer 2.4s ease-in-out infinite; }
+  .card-footer {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
 
-  .agent-ts {
-    margin-top: 8px;
-    font-size: 0.63rem;
+  .token-bar-container {
+    width: 100%;
+  }
+
+  .token-bar-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+    font-size: 0.6rem;
     color: var(--muted);
   }
 
-  /* ── Activity Feed ───────────────────────────────────────────── */
-  .feed {
-    flex: 1;
+  .token-pct {
+    font-weight: 700;
+    color: var(--text-secondary);
+  }
+
+  .token-bar-track {
+    width: 100%;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .token-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--purple), var(--cyan));
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 8px var(--purple-glow);
+  }
+
+  .token-bar-fill.high {
+    background: linear-gradient(90deg, var(--yellow), var(--red));
+    box-shadow: 0 0 8px var(--yellow-glow);
+  }
+
+  .card-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.6rem;
+    color: var(--muted);
+  }
+
+  /* ── System Panel (Right Sidebar) ────────────────────────────── */
+  .sidebar {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    border-left: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     min-height: 0;
+    background: var(--surface);
+    backdrop-filter: blur(16px);
+  }
+
+  .system-panel {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .sys-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  .sys-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    transition: all 0.2s;
+  }
+
+  .sys-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--glass-border-hover);
+  }
+
+  .sys-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .sys-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .sys-icon i { width: 14px; height: 14px; }
+
+  .sys-icon.tts { background: rgba(124, 58, 237, 0.12); color: var(--purple); }
+  .sys-icon.heartbeat { background: rgba(239, 68, 68, 0.1); color: var(--red); }
+  .sys-icon.cron { background: rgba(6, 182, 212, 0.12); color: var(--cyan); }
+  .sys-icon.gateway { background: rgba(16, 185, 129, 0.12); color: var(--green); }
+  .sys-icon.version { background: rgba(59, 130, 246, 0.12); color: var(--blue); }
+
+  .sys-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .sys-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .sys-detail {
+    font-size: 0.58rem;
+    color: var(--muted);
+  }
+
+  .sys-value {
+    font-size: 0.62rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    white-space: nowrap;
+  }
+
+  .sys-ok {
+    color: var(--green);
+    background: rgba(16, 185, 129, 0.1);
+  }
+  .sys-warn {
+    color: var(--yellow);
+    background: rgba(245, 158, 11, 0.1);
+  }
+  .sys-off {
+    color: var(--muted);
+    background: rgba(75, 85, 99, 0.1);
+  }
+  .sys-num {
+    color: var(--cyan);
+    background: rgba(6, 182, 212, 0.1);
+  }
+
+  /* ── Activity Feed ───────────────────────────────────────────── */
+  .feed-section {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-top: 1px solid var(--border);
   }
 
   .feed-header {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 7px 20px;
+    gap: 10px;
+    padding: 12px 24px;
     border-bottom: 1px solid var(--border);
-    font-size: 0.63rem;
-    font-weight: 600;
+  }
+
+  .feed-title {
+    font-size: 0.6rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.9px;
+    letter-spacing: 2px;
     color: var(--muted);
   }
+
   .feed-count {
-    background: var(--border);
-    padding: 1px 6px;
-    border-radius: 8px;
-    font-size: 0.6rem;
+    font-size: 0.55rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    color: var(--purple);
+    background: rgba(124, 58, 237, 0.1);
+    border: 1px solid rgba(124, 58, 237, 0.15);
   }
 
   .feed-scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 3px 0;
-    display: flex;
-    flex-direction: column-reverse; /* newest at bottom */
+    padding: 4px 0;
   }
+
   .feed-scroll::-webkit-scrollbar { width: 3px; }
-  .feed-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .feed-scroll::-webkit-scrollbar-track { background: transparent; }
+  .feed-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
 
   .feed-row {
-    display: grid;
-    grid-template-columns: 20px 48px 72px 1fr;
-    align-items: baseline;
-    padding: 4px 20px;
-    font-size: 0.77rem;
-    line-height: 1.45;
-    animation: fadeIn 0.25s ease;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 24px;
+    border-left: 2px solid transparent;
+    animation: slideIn 0.3s ease;
+    transition: background 0.15s;
   }
-  .feed-row:hover { background: rgba(255,255,255,.02); }
 
-  @keyframes fadeIn { from{opacity:0;transform:translateY(3px)} to{opacity:1;transform:translateY(0)} }
+  .feed-row:hover {
+    background: rgba(255, 255, 255, 0.015);
+  }
+
+  .feed-row.type-info    { border-left-color: var(--cyan); }
+  .feed-row.type-success { border-left-color: var(--green); }
+  .feed-row.type-warning { border-left-color: var(--yellow); }
+  .feed-row.type-error   { border-left-color: var(--red); }
 
   .feed-dot {
-    width: 6px; height: 6px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
-    align-self: center;
-    justify-self: center;
+    margin-top: 6px;
+    flex-shrink: 0;
   }
-  .dot-info    { background: var(--blue); }
-  .dot-success { background: var(--green); }
-  .dot-warning { background: var(--yellow); }
-  .dot-error   { background: var(--red); }
 
-  .feed-time  { color: var(--muted); font-size: 0.68rem; font-variant-numeric: tabular-nums; }
-  .feed-agent { color: var(--purple); font-size: 0.68rem; font-weight: 700;
-                text-transform: uppercase; letter-spacing: 0.3px; overflow: hidden;
-                text-overflow: ellipsis; white-space: nowrap; }
-  .feed-msg   { color: var(--text); word-break: break-word; }
+  .dot-info    { background: var(--cyan); box-shadow: 0 0 6px var(--cyan-glow); }
+  .dot-success { background: var(--green); box-shadow: 0 0 6px var(--green-glow); }
+  .dot-warning { background: var(--yellow); box-shadow: 0 0 6px var(--yellow-glow); }
+  .dot-error   { background: var(--red); box-shadow: 0 0 6px rgba(239,68,68,0.3); }
+
+  .feed-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .feed-top-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 2px;
+  }
+
+  .feed-agent-name {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .feed-agent-sai   { color: var(--purple); }
+  .feed-agent-cody  { color: var(--cyan); }
+  .feed-agent-rory  { color: var(--blue); }
+  .feed-agent-jamal { color: var(--green); }
+
+  .feed-time {
+    font-size: 0.58rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .feed-message {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  /* ── Activity Feed in sidebar ────────────────────────────────── */
+  .sidebar-feed {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* ── Empty state ─────────────────────────────────────────────── */
+  .empty-feed {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    color: var(--muted);
+    gap: 8px;
+  }
+
+  .empty-feed i { width: 24px; height: 24px; opacity: 0.3; }
+  .empty-feed span { font-size: 0.7rem; opacity: 0.5; }
 
   /* ── Responsive ──────────────────────────────────────────────── */
-  @media (max-width: 860px) {
-    #agents-grid { grid-template-columns: repeat(2, 1fr); }
-    .agent:nth-child(2) { border-right: none; }
-    .agent:nth-child(1),
-    .agent:nth-child(2) { border-bottom: 1px solid var(--border); }
+  @media (max-width: 1100px) {
+    .agents-grid { grid-template-columns: repeat(2, 1fr); }
   }
-  @media (max-width: 500px) {
-    #agents-grid { grid-template-columns: 1fr; }
-    .agent { border-right: none !important; border-bottom: 1px solid var(--border); }
-    .agent:last-child { border-bottom: none; }
-    header { padding: 9px 14px; gap: 10px; }
-    .feed-row { grid-template-columns: 16px 40px 62px 1fr; padding: 4px 14px; }
-    .metrics .metric:nth-child(3),
-    .metrics .metric:nth-child(4) { display: none; }
+
+  @media (max-width: 860px) {
+    .main-content {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto 1fr;
+    }
+    .sidebar {
+      grid-column: 1;
+      grid-row: 2;
+      border-left: none;
+      border-top: 1px solid var(--border);
+      max-height: 200px;
+    }
+    .sidebar-feed { display: none; }
+    .feed-section { grid-row: 3; }
+  }
+
+  @media (max-width: 600px) {
+    .agents-grid { grid-template-columns: 1fr; }
+    header { padding: 12px 16px; gap: 12px; flex-wrap: wrap; }
+    .agents-section { padding: 16px; }
+    .feed-row { padding: 6px 16px; }
+    .metrics-bar { gap: 16px; }
   }
 </style>
 </head>
@@ -277,42 +768,144 @@
 
 <!-- Header -->
 <header>
-  <div class="logo">⚡ Sai Ops <span class="logo-sub">/ OpenClaw</span></div>
-  <div class="divider"></div>
-  <div class="metrics">
-    <div class="metric m-done">
-      <span class="metric-val" id="m-completed">—</span>
-      <span class="metric-lbl">done</span>
-    </div>
-    <div class="metric m-active">
-      <span class="metric-val" id="m-active">—</span>
-      <span class="metric-lbl">active</span>
-    </div>
-    <div class="metric m-failed">
-      <span class="metric-val" id="m-failed">—</span>
-      <span class="metric-lbl">failed</span>
-    </div>
-    <div class="metric" style="color:var(--muted)">
-      <span class="metric-val" id="m-messages">—</span>
-      <span class="metric-lbl">msgs</span>
+  <div class="logo-group">
+    <div class="logo-icon">⚡</div>
+    <div class="logo-text">
+      <div class="logo-title">SAI OPS</div>
+      <div class="logo-version" id="version-label">OpenClaw</div>
     </div>
   </div>
-  <div class="spacer"></div>
-  <span id="uptime"></span>
-  <span id="conn-status" class="connecting">● Connecting…</span>
-  <div class="live"><div class="pulse"></div>LIVE</div>
+
+  <div class="header-divider"></div>
+
+  <div class="metrics-bar">
+    <div class="metric-item">
+      <span class="metric-value mv-sessions" id="m-sessions">-</span>
+      <span class="metric-label">Sessions</span>
+    </div>
+    <div class="metric-item">
+      <span class="metric-value mv-agents" id="m-agents">-</span>
+      <span class="metric-label">Active</span>
+    </div>
+    <div class="metric-item">
+      <span class="metric-value mv-tokens" id="m-tokens">-</span>
+      <span class="metric-label">Tokens</span>
+    </div>
+    <div class="metric-item">
+      <span class="metric-value mv-uptime" id="m-uptime">--:--:--</span>
+      <span class="metric-label">Uptime</span>
+    </div>
+  </div>
+
+  <div class="header-right">
+    <div class="live-indicator">
+      <div class="live-dot" id="live-dot"></div>
+      <span id="live-label">LIVE</span>
+    </div>
+  </div>
 </header>
 
-<!-- Agents -->
-<div id="agents-grid"></div>
+<!-- Main Content -->
+<div class="main-content">
 
-<!-- Feed -->
-<div class="feed">
-  <div class="feed-header">
-    Activity
-    <span class="feed-count" id="feed-count">0</span>
+  <!-- Agent Cards -->
+  <div class="agents-section">
+    <div class="section-label">
+      <i data-lucide="cpu"></i>
+      Agent Status
+    </div>
+    <div class="agents-grid" id="agents-grid"></div>
   </div>
-  <div class="feed-scroll" id="feed-list"></div>
+
+  <!-- Activity Feed -->
+  <div class="feed-section">
+    <div class="feed-header">
+      <i data-lucide="activity" style="width:14px;height:14px;color:var(--muted)"></i>
+      <span class="feed-title">Activity Feed</span>
+      <span class="feed-count" id="feed-count">0</span>
+    </div>
+    <div class="feed-scroll" id="feed-list">
+      <div class="empty-feed" id="feed-empty">
+        <i data-lucide="radio"></i>
+        <span>Waiting for events...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Sidebar -->
+  <div class="sidebar">
+    <div class="system-panel">
+      <div class="section-label">
+        <i data-lucide="server"></i>
+        System
+      </div>
+      <div class="sys-grid" id="sys-grid">
+        <div class="sys-item">
+          <div class="sys-left">
+            <div class="sys-icon tts"><i data-lucide="volume-2"></i></div>
+            <div class="sys-info">
+              <span class="sys-label">TTS Engine</span>
+              <span class="sys-detail" id="sys-tts-detail">Piper (local)</span>
+            </div>
+          </div>
+          <span class="sys-value sys-off" id="sys-tts-status">...</span>
+        </div>
+        <div class="sys-item">
+          <div class="sys-left">
+            <div class="sys-icon heartbeat"><i data-lucide="heart-pulse"></i></div>
+            <div class="sys-info">
+              <span class="sys-label">Heartbeat</span>
+              <span class="sys-detail">qwen3:4b · every 4h</span>
+            </div>
+          </div>
+          <span class="sys-value sys-ok" id="sys-heartbeat">Active</span>
+        </div>
+        <div class="sys-item">
+          <div class="sys-left">
+            <div class="sys-icon cron"><i data-lucide="clock"></i></div>
+            <div class="sys-info">
+              <span class="sys-label">Cron Jobs</span>
+              <span class="sys-detail" id="sys-cron-detail">Scheduled tasks</span>
+            </div>
+          </div>
+          <span class="sys-value sys-num" id="sys-cron-count">-</span>
+        </div>
+        <div class="sys-item">
+          <div class="sys-left">
+            <div class="sys-icon gateway"><i data-lucide="radio-tower"></i></div>
+            <div class="sys-info">
+              <span class="sys-label">Gateway</span>
+              <span class="sys-detail" id="sys-gateway-detail">Port 18789</span>
+            </div>
+          </div>
+          <span class="sys-value sys-ok" id="sys-gateway-status">Online</span>
+        </div>
+        <div class="sys-item">
+          <div class="sys-left">
+            <div class="sys-icon version"><i data-lucide="package"></i></div>
+            <div class="sys-info">
+              <span class="sys-label">OpenClaw</span>
+              <span class="sys-detail" id="sys-version">Loading...</span>
+            </div>
+          </div>
+          <span class="sys-value sys-off" id="sys-version-badge">-</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar feed (cron jobs list) -->
+    <div class="sidebar-feed">
+      <div class="feed-header">
+        <i data-lucide="list" style="width:14px;height:14px;color:var(--muted)"></i>
+        <span class="feed-title">Cron Schedule</span>
+      </div>
+      <div class="feed-scroll" id="cron-list" style="padding: 8px 12px;">
+        <div class="empty-feed">
+          <span>Loading cron jobs...</span>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -320,30 +913,68 @@
 const agentState = {};
 let feedItems = [];
 
+const AGENT_META = {
+  sai:   { emoji: '⚡', name: 'Sai',   colorVar: '--purple' },
+  cody:  { emoji: '🧑‍💻', name: 'Cody',  colorVar: '--cyan' },
+  rory:  { emoji: '🔍', name: 'Rory',  colorVar: '--blue' },
+  jamal: { emoji: '✅', name: 'Jamal', colorVar: '--green' },
+};
+
 // ── Helpers ───────────────────────────────────────────────────────
 function relTime(ts) {
+  if (!ts) return 'never';
+  const d = Math.floor((Date.now() - ts) / 1000);
+  if (d < 5)    return 'just now';
+  if (d < 60)   return `${d}s ago`;
+  if (d < 3600) return `${Math.floor(d/60)}m ago`;
+  if (d < 86400) return `${Math.floor(d/3600)}h ago`;
+  return `${Math.floor(d/86400)}d ago`;
+}
+
+function shortTime(ts) {
+  if (!ts) return '-';
   const d = Math.floor((Date.now() - ts) / 1000);
   if (d < 5)    return 'now';
   if (d < 60)   return `${d}s`;
   if (d < 3600) return `${Math.floor(d/60)}m`;
-  return `${Math.floor(d/3600)}h`;
+  if (d < 86400) return `${Math.floor(d/3600)}h`;
+  return `${Math.floor(d/86400)}d`;
 }
 
 function fmtUptime(ms) {
   const s = Math.floor(ms / 1000);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sc = s % 60;
-  if (h) return `up ${h}h ${m}m`;
-  if (m) return `up ${m}m ${sc}s`;
-  return `up ${sc}s`;
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(h)}:${pad(m)}:${pad(sc)}`;
 }
 
-function agentLabel(id) { return agentState[id]?.name ?? id; }
+function fmtTokens(n) {
+  if (!n) return '0';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  return String(n);
+}
 
 function esc(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ── Render agents ─────────────────────────────────────────────────
+function modelInfo(model) {
+  if (!model) return { text: 'unknown', cls: 'model-unknown' };
+  const m = model.toLowerCase();
+  let cls = 'model-other';
+  if (m.includes('claude')) cls = 'model-claude';
+  else if (m.includes('gpt')) cls = 'model-gpt';
+  else if (m.includes('unknown')) cls = 'model-unknown';
+
+  let text = model
+    .replace(/^anthropic\//i, '')
+    .replace(/^openai\//i, '');
+
+  return { text, cls };
+}
+
+// ── Render Agents ─────────────────────────────────────────────────
 function renderAgents(agents) {
   const grid = document.getElementById('agents-grid');
   agents.forEach(a => {
@@ -354,68 +985,190 @@ function renderAgents(agents) {
       card.id = `agent-${a.id}`;
       grid.appendChild(card);
     }
-    card.className = `agent ${a.status}`;
+
+    const model = modelInfo(a.model);
+    const pct = a.percentUsed || 0;
+    const meta = AGENT_META[a.id] || { emoji: '●', name: a.id };
+
+    card.className = `agent-card ${a.status}`;
     card.innerHTML = `
-      <div class="agent-row">
-        <div class="agent-id">
-          <span class="agent-emoji">${a.emoji}</span>
-          <span class="agent-name">${a.name}</span>
+      <div class="card-header">
+        <div class="card-identity">
+          <div class="agent-avatar ${a.id}">
+            ${meta.emoji}
+            <div class="status-dot ${a.status}"></div>
+          </div>
+          <div class="card-name-group">
+            <span class="card-name">${a.name}</span>
+            <span class="card-role">${a.role || ''}</span>
+          </div>
         </div>
-        <span class="agent-status">${a.status}</span>
+        <span class="model-pill ${model.cls}">${esc(model.text)}</span>
       </div>
-      <div class="agent-task ${a.task ? '' : 'empty'}">${a.task ? esc(a.task) : 'Idle'}</div>
-      <div class="agent-ts" data-ts="${a.lastSeen}">${relTime(a.lastSeen)}</div>
+      <div class="card-status">
+        <span class="status-badge badge-${a.status}">${a.status}</span>
+      </div>
+      <div class="card-task ${a.task ? '' : 'empty'}">${a.task ? esc(a.task) : 'No active task'}</div>
+      <div class="card-footer">
+        <div class="token-bar-container">
+          <div class="token-bar-header">
+            <span>Context: ${fmtTokens(a.totalTokens)} / ${fmtTokens(a.contextTokens || 200000)}</span>
+            <span class="token-pct">${pct.toFixed(0)}%</span>
+          </div>
+          <div class="token-bar-track">
+            <div class="token-bar-fill ${pct > 75 ? 'high' : ''}" style="width: ${Math.min(pct, 100)}%"></div>
+          </div>
+        </div>
+        <div class="card-meta">
+          <span>${a.sessionCount || 0} session${(a.sessionCount||0) !== 1 ? 's' : ''}</span>
+          <span class="last-seen" data-ts="${a.lastSeen || ''}">${relTime(a.lastSeen)}</span>
+        </div>
+      </div>
     `;
   });
 }
 
-// ── Render feed ───────────────────────────────────────────────────
-function renderFeedItem(item) {
-  const list = document.getElementById('feed-list');
+// ── Render Feed ───────────────────────────────────────────────────
+function makeFeedRow(item, animate) {
   const div = document.createElement('div');
-  div.className = 'feed-row';
+  div.className = `feed-row type-${item.type || 'info'}`;
+  if (!animate) div.style.animation = 'none';
+
+  const meta = AGENT_META[item.agentId] || {};
+  const agentCls = `feed-agent-${item.agentId}`;
+
   div.innerHTML = `
-    <div class="feed-dot dot-${item.type ?? 'info'}"></div>
-    <span class="feed-time" data-ts="${item.ts}">${relTime(item.ts)}</span>
-    <span class="feed-agent">${agentLabel(item.agentId)}</span>
-    <span class="feed-msg">${esc(item.message)}</span>
+    <div class="feed-dot dot-${item.type || 'info'}"></div>
+    <div class="feed-body">
+      <div class="feed-top-line">
+        <span class="feed-agent-name ${agentCls}">${meta.emoji || ''} ${meta.name || item.agentId}</span>
+        <span class="feed-time" data-ts="${item.ts}">${shortTime(item.ts)}</span>
+      </div>
+      <div class="feed-message">${esc(item.message)}</div>
+    </div>
   `;
-  list.appendChild(div);
+  return div;
 }
 
 function renderFeedBatch(items) {
   const list = document.getElementById('feed-list');
+  const empty = document.getElementById('feed-empty');
+  if (empty) empty.remove();
+
   list.innerHTML = '';
-  items.forEach(renderFeedItem);
+  items.forEach(item => list.appendChild(makeFeedRow(item, false)));
   document.getElementById('feed-count').textContent = items.length;
+  requestAnimationFrame(() => list.scrollTop = list.scrollHeight);
 }
 
-// ── Metrics ───────────────────────────────────────────────────────
+function renderFeedItem(item) {
+  const list = document.getElementById('feed-list');
+  const empty = document.getElementById('feed-empty');
+  if (empty) empty.remove();
+
+  list.appendChild(makeFeedRow(item, true));
+  requestAnimationFrame(() => list.scrollTop = list.scrollHeight);
+}
+
+// ── Render Metrics ────────────────────────────────────────────────
 function renderMetrics(m) {
-  document.getElementById('m-completed').textContent = m.tasksCompleted.toLocaleString();
-  document.getElementById('m-active').textContent    = m.tasksActive.toLocaleString();
-  document.getElementById('m-failed').textContent    = m.tasksFailed.toLocaleString();
-  document.getElementById('m-messages').textContent  = m.messagesProcessed.toLocaleString();
-  if (m.uptimeMs != null)
-    document.getElementById('uptime').textContent = fmtUptime(m.uptimeMs);
+  document.getElementById('m-sessions').textContent = m.totalSessions || m.activeSessions || 0;
+  document.getElementById('m-agents').textContent = m.activeAgents || 0;
+  document.getElementById('m-tokens').textContent = fmtTokens(m.totalTokensUsed || 0);
+  if (m.uptimeMs != null) {
+    document.getElementById('m-uptime').textContent = fmtUptime(m.uptimeMs);
+  }
+}
+
+// ── Render System ─────────────────────────────────────────────────
+function renderSystem(sys) {
+  if (!sys) return;
+
+  // Version
+  const versionLabel = document.getElementById('version-label');
+  const versionDetail = document.getElementById('sys-version');
+  const versionBadge = document.getElementById('sys-version-badge');
+  if (sys.openclawVersion) {
+    versionLabel.textContent = sys.openclawVersion;
+    const parts = sys.openclawVersion.split(' ');
+    versionDetail.textContent = parts[0] || 'OpenClaw';
+    versionBadge.textContent = parts[1] || '';
+    versionBadge.className = 'sys-value sys-num';
+  }
+
+  // TTS
+  const ttsStatus = document.getElementById('sys-tts-status');
+  const ttsDetail = document.getElementById('sys-tts-detail');
+  if (sys.ttsStatus === 'ok') {
+    ttsStatus.textContent = 'Online';
+    ttsStatus.className = 'sys-value sys-ok';
+  } else {
+    ttsStatus.textContent = 'Offline';
+    ttsStatus.className = 'sys-value sys-off';
+  }
+  if (sys.ttsModel) {
+    ttsDetail.textContent = sys.ttsModel.replace(/-/g, ' ');
+  }
+
+  // Gateway
+  document.getElementById('sys-gateway-detail').textContent = `Port ${sys.gatewayPort}`;
+
+  // Cron
+  document.getElementById('sys-cron-count').textContent = sys.cronCount || 0;
+  const cronDetail = document.getElementById('sys-cron-detail');
+  if (sys.cronCount > 0) {
+    cronDetail.textContent = `${sys.cronCount} scheduled task${sys.cronCount !== 1 ? 's' : ''}`;
+  }
+
+  // Render cron list in sidebar
+  if (sys.cronJobs && sys.cronJobs.length > 0) {
+    const cronList = document.getElementById('cron-list');
+    cronList.innerHTML = '';
+    sys.cronJobs.forEach(job => {
+      const div = document.createElement('div');
+      div.style.cssText = `
+        padding: 8px 10px;
+        margin-bottom: 6px;
+        border-radius: 8px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid var(--glass-border);
+      `;
+      const statusColor = job.status === 'ok' ? 'var(--green)' : 'var(--muted)';
+      div.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+          <span style="font-size:0.68rem;font-weight:600;color:var(--text)">${esc(job.name || 'Unnamed')}</span>
+          <span style="font-size:0.55rem;font-weight:600;color:${statusColor};text-transform:uppercase">${job.status || 'idle'}</span>
+        </div>
+        <div style="font-size:0.58rem;color:var(--muted)">${esc(job.schedule || '')}</div>
+        ${job.next ? `<div style="font-size:0.55rem;color:var(--muted);margin-top:2px">Next: ${esc(job.next)}</div>` : ''}
+      `;
+      cronList.appendChild(div);
+    });
+  }
 }
 
 // ── Timestamp ticker ──────────────────────────────────────────────
 setInterval(() => {
   document.querySelectorAll('[data-ts]').forEach(el => {
     const ts = parseInt(el.dataset.ts, 10);
-    if (!isNaN(ts)) el.textContent = relTime(ts);
+    if (!isNaN(ts)) {
+      el.textContent = el.classList.contains('feed-time') ? shortTime(ts) : relTime(ts);
+    }
   });
 }, 5000);
 
 // ── SSE ───────────────────────────────────────────────────────────
 let es;
 function connect() {
-  setConnStatus('connecting');
   es = new EventSource('/api/stream');
-  es.addEventListener('agents',   e => renderAgents(JSON.parse(e.data)));
-  es.addEventListener('metrics',  e => renderMetrics(JSON.parse(e.data)));
-  es.addEventListener('feed',     e => { feedItems = JSON.parse(e.data); renderFeedBatch(feedItems); });
+
+  es.addEventListener('agents', e => renderAgents(JSON.parse(e.data)));
+  es.addEventListener('metrics', e => renderMetrics(JSON.parse(e.data)));
+  es.addEventListener('system', e => renderSystem(JSON.parse(e.data)));
+  es.addEventListener('feed', e => {
+    feedItems = JSON.parse(e.data);
+    renderFeedBatch(feedItems);
+  });
   es.addEventListener('activity', e => {
     const item = JSON.parse(e.data);
     feedItems.push(item);
@@ -423,17 +1176,32 @@ function connect() {
     renderFeedItem(item);
     document.getElementById('feed-count').textContent = feedItems.length;
   });
-  es.onopen  = () => setConnStatus('connected');
-  es.onerror = () => { setConnStatus('disconnected'); es.close(); setTimeout(connect, 3000); };
-}
 
-function setConnStatus(s) {
-  const el = document.getElementById('conn-status');
-  el.className = s;
-  el.textContent = s === 'connected' ? '● Connected' : s === 'connecting' ? '● Connecting…' : '● Disconnected';
+  es.onopen = () => {
+    const dot = document.getElementById('live-dot');
+    const label = document.getElementById('live-label');
+    dot.classList.remove('disconnected');
+    label.textContent = 'LIVE';
+    label.style.color = 'var(--green)';
+  };
+
+  es.onerror = () => {
+    const dot = document.getElementById('live-dot');
+    const label = document.getElementById('live-label');
+    dot.classList.add('disconnected');
+    label.textContent = 'RECONNECTING';
+    label.style.color = 'var(--red)';
+    es.close();
+    setTimeout(connect, 3000);
+  };
 }
 
 connect();
+
+// Init Lucide icons
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.lucide) lucide.createIcons();
+});
 </script>
 </body>
 </html>

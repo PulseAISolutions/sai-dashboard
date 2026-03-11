@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+const { exec, execSync } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,27 +11,80 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── Config ───────────────────────────────────────────────────────────────────
+
+const OPENCLAW_JSON = path.join(process.env.USERPROFILE || process.env.HOME, '.openclaw', 'openclaw.json');
+let GATEWAY_TOKEN = '';
+let GATEWAY_PORT = 18789;
+
+try {
+  const cfg = JSON.parse(fs.readFileSync(OPENCLAW_JSON, 'utf8'));
+  GATEWAY_TOKEN = cfg?.gateway?.auth?.token || '';
+  GATEWAY_PORT = cfg?.gateway?.port || 18789;
+} catch (e) {
+  console.warn('Could not read openclaw.json:', e.message);
+}
+
+// ── Version ──────────────────────────────────────────────────────────────────
+
+let openclawVersion = 'unknown';
+try {
+  openclawVersion = execSync('openclaw --version', { timeout: 5000 }).toString().trim();
+} catch (_) {}
+
+// ── Agent mapping ────────────────────────────────────────────────────────────
+
+const AGENT_DEFS = {
+  sai:   { id: 'sai',   name: 'Sai',   emoji: '⚡', role: 'Orchestrator',  defaultModel: 'claude-sonnet-4-6',  fallback: 'gpt-5.4' },
+  cody:  { id: 'cody',  name: 'Cody',  emoji: '🧑‍💻', role: 'Coder',         defaultModel: 'gpt-5.4',            fallback: 'kimi-k2.5' },
+  rory:  { id: 'rory',  name: 'Rory',  emoji: '🔍', role: 'Researcher',    defaultModel: 'claude-sonnet-4-6',  fallback: 'gpt-5.4' },
+  jamal: { id: 'jamal', name: 'Jamal', emoji: '✅', role: 'Tester',        defaultModel: 'claude-opus-4-6',    fallback: 'gpt-5.4' },
+};
+
 // ── In-memory state ──────────────────────────────────────────────────────────
 
-const agents = {
-  sai:   { id: 'sai',   name: 'Sai',   emoji: '⚡', status: 'ACTIVE',  task: 'Orchestrating task pipeline', lastSeen: Date.now() },
-  cody:  { id: 'cody',  name: 'Cody',  emoji: '🧑‍💻', status: 'ACTIVE',  task: 'Writing unit tests for auth module', lastSeen: Date.now() },
-  rory:  { id: 'rory',  name: 'Rory',  emoji: '🔍', status: 'IDLE',    task: null, lastSeen: Date.now() },
-  jamal: { id: 'jamal', name: 'Jamal', emoji: '✅', status: 'WAITING', task: 'Waiting for Cody to finish tests', lastSeen: Date.now() },
+const agents = {};
+for (const [id, def] of Object.entries(AGENT_DEFS)) {
+  agents[id] = {
+    ...def,
+    status: 'OFFLINE',
+    task: null,
+    model: def.defaultModel,
+    lastSeen: null,
+    percentUsed: 0,
+    totalTokens: 0,
+    contextTokens: 200000,
+    inputTokens: 0,
+    outputTokens: 0,
+    sessionCount: 0,
+  };
+}
+
+const system = {
+  ttsVoice: 'en_GB-northern_english_male-medium',
+  ttsStatus: 'unknown',
+  ttsModel: null,
+  heartbeatInterval: '4h',
+  heartbeatModel: 'ollama/qwen3:4b',
+  cronJobs: [],
+  cronCount: 0,
+  gatewayPort: GATEWAY_PORT,
+  openclawVersion,
+  gatewayUptime: Date.now(),
 };
 
 const metrics = {
-  tasksCompleted: 142,
-  tasksActive: 3,
-  tasksFailed: 2,
+  totalSessions: 0,
+  activeSessions: 0,
+  activeAgents: 0,
+  totalTokensUsed: 0,
   uptime: Date.now(),
-  messagesProcessed: 4821,
 };
 
 const MAX_FEED = 200;
 const activityFeed = [];
 
-// ── SSE client registry ──────────────────────────────────────────────────────
+// ── SSE ──────────────────────────────────────────────────────────────────────
 
 const sseClients = new Set();
 
@@ -40,75 +95,271 @@ function broadcast(event, data) {
   }
 }
 
-// ── Seed initial feed ────────────────────────────────────────────────────────
-
-const SEED_EVENTS = [
-  { agentId: 'sai',   type: 'info',    message: 'Pipeline started — 4 tasks queued' },
-  { agentId: 'cody',  type: 'info',    message: 'Cloned repo and checked out feature/auth-refactor' },
-  { agentId: 'rory',  type: 'success', message: 'Code review complete — 0 blockers found' },
-  { agentId: 'jamal', type: 'info',    message: 'Test plan generated for auth module' },
-  { agentId: 'sai',   type: 'info',    message: 'Delegated auth testing to Cody' },
-  { agentId: 'cody',  type: 'warning', message: 'Flaky test detected in login flow — retrying' },
-  { agentId: 'cody',  type: 'success', message: 'All 47 unit tests passing' },
-  { agentId: 'jamal', type: 'info',    message: 'Verification queued, waiting on Cody' },
-];
-
-let seedTs = Date.now() - SEED_EVENTS.length * 18000;
-for (const e of SEED_EVENTS) {
-  activityFeed.push({ ...e, id: crypto.randomUUID(), ts: (seedTs += 18000) });
-}
-
 function pushEvent(agentId, type, message) {
   const event = { id: crypto.randomUUID(), agentId, type, message, ts: Date.now() };
   activityFeed.push(event);
   if (activityFeed.length > MAX_FEED) activityFeed.shift();
-  if (agents[agentId]) agents[agentId].lastSeen = event.ts;
   broadcast('activity', event);
   return event;
 }
 
-// ── Demo simulation ──────────────────────────────────────────────────────────
+// ── Data fetchers ────────────────────────────────────────────────────────────
 
-const SIM_EVENTS = [
-  () => { agents.sai.status = 'ACTIVE'; agents.sai.task = 'Reviewing PR #88'; pushEvent('sai', 'info', 'Started PR review for feature/auth-refactor'); },
-  () => { agents.cody.status = 'ACTIVE'; agents.cody.task = 'Fixing lint errors'; pushEvent('cody', 'warning', 'ESLint found 3 errors in auth.js — fixing'); },
-  () => { pushEvent('cody', 'success', 'Lint errors resolved and committed'); agents.cody.task = 'Idle'; agents.cody.status = 'IDLE'; metrics.tasksCompleted++; },
-  () => { agents.rory.status = 'ACTIVE'; agents.rory.task = 'Scanning for security issues'; pushEvent('rory', 'info', 'Running dependency vulnerability scan'); },
-  () => { pushEvent('rory', 'info', 'Scanning 142 packages…'); },
-  () => { pushEvent('rory', 'success', 'No critical vulnerabilities found'); agents.rory.status = 'IDLE'; agents.rory.task = null; metrics.tasksCompleted++; },
-  () => { agents.jamal.status = 'ACTIVE'; agents.jamal.task = 'Running integration tests'; pushEvent('jamal', 'info', 'Starting integration test suite — 12 scenarios'); },
-  () => { pushEvent('jamal', 'info', '8/12 scenarios passed…'); },
-  () => { pushEvent('jamal', 'warning', 'Scenario #9 timed out — retrying'); },
-  () => { pushEvent('jamal', 'success', '12/12 scenarios passed'); agents.jamal.status = 'IDLE'; agents.jamal.task = null; metrics.tasksCompleted++; },
-  () => { agents.sai.status = 'ACTIVE'; agents.sai.task = 'Merging approved PR'; pushEvent('sai', 'success', 'PR #88 approved — merging to main'); metrics.tasksCompleted++; },
-  () => { pushEvent('sai', 'info', 'Triggering deployment pipeline'); agents.sai.task = 'Monitoring deployment'; },
-  () => { pushEvent('sai', 'success', 'Deployment complete — v2.4.1 live'); agents.sai.status = 'IDLE'; agents.sai.task = null; metrics.tasksCompleted++; },
-  () => { agents.sai.status = 'ACTIVE'; agents.sai.task = 'Orchestrating task pipeline'; pushEvent('sai', 'info', 'New task batch received — 3 items'); },
-  () => { agents.cody.status = 'ACTIVE'; agents.cody.task = 'Writing API documentation'; pushEvent('cody', 'info', 'Generating OpenAPI spec from route handlers'); },
-  () => { agents.rory.status = 'ACTIVE'; agents.rory.task = 'Reviewing code quality metrics'; pushEvent('rory', 'info', 'Running code complexity analysis'); },
-];
-
-let simIndex = 0;
-
-function runSimStep() {
-  if (simIndex < SIM_EVENTS.length) {
-    SIM_EVENTS[simIndex++]();
-  } else {
-    // After all scripted events, keep ticking with heartbeats
-    pushEvent('sai', 'info', 'Heartbeat — system nominal');
-    metrics.messagesProcessed += Math.floor(Math.random() * 5) + 1;
-  }
-  metrics.tasksActive = Object.values(agents).filter(a => a.status === 'ACTIVE').length;
-  broadcast('agents', Object.values(agents));
-  broadcast('metrics', { ...metrics, uptimeMs: Date.now() - metrics.uptime });
+function fetchOpenClawStatus() {
+  return new Promise((resolve) => {
+    exec('openclaw gateway call status --json', { timeout: 15000 }, (error, stdout) => {
+      if (error) return resolve(null);
+      try {
+        // Strip ANSI codes
+        const clean = stdout.replace(/\x1b\[[0-9;]*m/g, '').trim();
+        resolve(JSON.parse(clean));
+      } catch (e) { resolve(null); }
+    });
+  });
 }
 
-setInterval(runSimStep, 4000);
+function fetchCronList() {
+  return new Promise((resolve) => {
+    exec('openclaw cron list --json', { timeout: 10000 }, (error, stdout) => {
+      if (!error && stdout.trim()) {
+        try {
+          const parsed = JSON.parse(stdout.trim());
+          // Handle { jobs: [...], total: N } format
+          if (parsed.jobs && Array.isArray(parsed.jobs)) {
+            return resolve(parsed.jobs);
+          }
+          if (Array.isArray(parsed)) return resolve(parsed);
+          return resolve([parsed]);
+        } catch (_) {}
+      }
+      // Fallback: parse text output
+      exec('openclaw cron list', { timeout: 10000 }, (err2, out2) => {
+        if (err2) return resolve([]);
+        const clean = (out2 || '').replace(/\x1b\[[0-9;]*m/g, '');
+        const lines = clean.trim().split('\n').filter(l => l.trim() && !l.startsWith('ID'));
+        resolve(lines.map(l => {
+          const parts = l.trim().split(/\s{2,}/);
+          return {
+            id: parts[0] || '',
+            name: parts[1] || '',
+            schedule: parts[2] || '',
+            next: parts[3] || '',
+            last: parts[4] || '',
+            status: parts[5] || '',
+          };
+        }));
+      });
+    });
+  });
+}
 
-// Slower heartbeat for uptime ticker
-setInterval(() => {
-  broadcast('metrics', { ...metrics, uptimeMs: Date.now() - metrics.uptime });
+async function fetchTTSHealth() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch('http://127.0.0.1:5050/health', { signal: controller.signal });
+    clearTimeout(timeout);
+    const data = await res.json();
+    return data;
+  } catch (_) {
+    return { status: 'offline' };
+  }
+}
+
+// ── Update state from real data ──────────────────────────────────────────────
+
+function updateFromOpenClaw(data) {
+  if (!data) return;
+
+  const byAgent = data?.sessions?.byAgent || [];
+  const allRecent = data?.sessions?.recent || [];
+
+  // Reset all agents to offline first
+  for (const agent of Object.values(agents)) {
+    agent.status = 'OFFLINE';
+    agent.task = null;
+    agent.percentUsed = 0;
+    agent.totalTokens = 0;
+    agent.sessionCount = 0;
+  }
+
+  // Map agent data from sessions
+  for (const agentGroup of byAgent) {
+    const agentId = agentGroup.agentId;
+    const agent = agents[agentId] || agents[
+      agentId === 'main' ? 'sai' : agentId
+    ];
+    if (!agent) continue;
+
+    const sessions = agentGroup.recent || [];
+    agent.sessionCount = agentGroup.count || sessions.length;
+
+    if (sessions.length === 0) continue;
+
+    // Find the most relevant session (non-cron, most recent)
+    const primarySession = sessions.find(s =>
+      s.key && !s.key.includes(':cron:') && !s.key.includes(':run:')
+    ) || sessions[0];
+
+    // Status based on age
+    const age = primarySession.age != null ? primarySession.age : Infinity;
+    if (age < 120000) { // 2 minutes
+      agent.status = 'ACTIVE';
+    } else if (age < 600000) { // 10 minutes
+      agent.status = 'IDLE';
+    } else {
+      agent.status = 'OFFLINE';
+    }
+
+    // Check if any subagent session matches this agent
+    const subagentSession = allRecent.find(s =>
+      s.key && s.key.includes('subagent') && s.age < 120000
+    );
+
+    // Model
+    if (primarySession.model) {
+      agent.model = primarySession.model;
+    }
+
+    // Token usage
+    if (primarySession.percentUsed != null) {
+      agent.percentUsed = primarySession.percentUsed;
+    }
+    if (primarySession.totalTokens != null) {
+      agent.totalTokens = primarySession.totalTokens;
+    }
+    if (primarySession.contextTokens != null) {
+      agent.contextTokens = primarySession.contextTokens;
+    }
+    if (primarySession.inputTokens != null) {
+      agent.inputTokens = primarySession.inputTokens;
+    }
+    if (primarySession.outputTokens != null) {
+      agent.outputTokens = primarySession.outputTokens;
+    }
+
+    // Last seen
+    if (primarySession.updatedAt) {
+      agent.lastSeen = primarySession.updatedAt;
+    }
+
+    // Task from session key
+    if (agent.status === 'ACTIVE' || agent.status === 'IDLE') {
+      const key = primarySession.key || '';
+      if (key.includes('subagent')) {
+        agent.task = 'Running sub-agent task';
+      } else if (key.includes('telegram')) {
+        agent.task = 'Telegram session active';
+      } else if (key.includes(':main')) {
+        agent.task = 'Main session active';
+      } else {
+        agent.task = 'Processing...';
+      }
+    }
+  }
+
+  // Check for active subagents that map to cody/rory/jamal
+  for (const session of allRecent) {
+    if (!session.key) continue;
+    const age = session.age || Infinity;
+
+    // Subagent sessions are under main but may represent cody/rory/jamal
+    if (session.key.includes('subagent') && age < 300000) {
+      // This is a subagent — mark as Cody (most likely) or check label
+      // For now, if there's an active subagent, at least one sub-agent is busy
+      const subModel = session.model || '';
+      if (subModel.includes('opus')) {
+        // Could be Cody on opus or Jamal
+        if (agents.cody.status === 'OFFLINE') {
+          agents.cody.status = 'ACTIVE';
+          agents.cody.model = subModel;
+          agents.cody.task = 'Active sub-agent session';
+          agents.cody.lastSeen = session.updatedAt;
+          if (session.percentUsed != null) agents.cody.percentUsed = session.percentUsed;
+          if (session.totalTokens != null) agents.cody.totalTokens = session.totalTokens;
+        }
+      }
+    }
+  }
+
+  // Update metrics
+  metrics.totalSessions = data?.sessions?.count || 0;
+  metrics.activeSessions = allRecent.filter(s => (s.age || Infinity) < 300000).length;
+  metrics.activeAgents = Object.values(agents).filter(a => a.status === 'ACTIVE').length;
+  metrics.totalTokensUsed = allRecent.reduce((sum, s) => sum + (s.totalTokens || 0), 0);
+}
+
+async function updateSystem() {
+  // TTS
+  const tts = await fetchTTSHealth();
+  system.ttsStatus = tts.status || 'offline';
+  system.ttsModel = tts.model || system.ttsVoice;
+
+  // Cron
+  const crons = await fetchCronList();
+  system.cronJobs = crons;
+  system.cronCount = crons.length;
+}
+
+// ── Poll loop ────────────────────────────────────────────────────────────────
+
+let lastFeedState = '';
+
+async function pollAll() {
+  try {
+    const data = await fetchOpenClawStatus();
+    if (data) {
+      updateFromOpenClaw(data);
+
+      // Generate activity events for state changes
+      const stateKey = Object.values(agents).map(a => `${a.id}:${a.status}`).join('|');
+      if (lastFeedState && stateKey !== lastFeedState) {
+        for (const agent of Object.values(agents)) {
+          const prev = lastFeedState.split('|').find(s => s.startsWith(agent.id + ':'));
+          const prevStatus = prev ? prev.split(':')[1] : 'OFFLINE';
+          if (prevStatus !== agent.status) {
+            const type = agent.status === 'ACTIVE' ? 'success' : agent.status === 'IDLE' ? 'info' : 'warning';
+            pushEvent(agent.id, type, `Status changed: ${prevStatus} → ${agent.status}`);
+          }
+        }
+      }
+      lastFeedState = stateKey;
+    }
+
+    broadcast('agents', Object.values(agents));
+    broadcast('metrics', {
+      ...metrics,
+      uptimeMs: Date.now() - metrics.uptime,
+    });
+  } catch (e) {
+    console.error('Poll error:', e.message);
+  }
+}
+
+async function pollSystem() {
+  await updateSystem();
+  broadcast('system', system);
+}
+
+// Poll agents every 8 seconds, system every 30 seconds
+setInterval(pollAll, 8000);
+setInterval(pollSystem, 30000);
+
+// Initial polls
+setTimeout(async () => {
+  await pollAll();
+  await pollSystem();
+  // Push initial startup event
+  pushEvent('sai', 'info', 'Dashboard connected — polling live data');
 }, 1000);
+
+// Uptime ticker every second
+setInterval(() => {
+  broadcast('metrics', {
+    ...metrics,
+    uptimeMs: Date.now() - metrics.uptime,
+  });
+}, 2000);
 
 // ── REST API ─────────────────────────────────────────────────────────────────
 
@@ -117,24 +368,19 @@ app.get('/api/state', (req, res) => {
     agents: Object.values(agents),
     feed: activityFeed.slice(-50),
     metrics: { ...metrics, uptimeMs: Date.now() - metrics.uptime },
+    system,
   });
 });
 
-// Manual agent update (for real OpenClaw integration)
-app.post('/api/agent/:id', (req, res) => {
-  const agent = agents[req.params.id];
-  if (!agent) return res.status(404).json({ error: 'Unknown agent' });
-  Object.assign(agent, req.body, { lastSeen: Date.now() });
-  broadcast('agents', Object.values(agents));
-  res.json(agent);
+app.get('/api/system', async (req, res) => {
+  await updateSystem();
+  res.json(system);
 });
 
-// Post an activity event (for real OpenClaw integration)
-app.post('/api/event', (req, res) => {
-  const { agentId, type, message } = req.body;
-  if (!agentId || !message) return res.status(400).json({ error: 'agentId and message required' });
-  const event = pushEvent(agentId, type || 'info', message);
-  res.json(event);
+app.get('/api/raw-status', async (req, res) => {
+  const data = await fetchOpenClawStatus();
+  if (data) res.json(data);
+  else res.status(503).json({ error: 'Could not fetch openclaw status' });
 });
 
 // ── SSE endpoint ─────────────────────────────────────────────────────────────
@@ -145,18 +391,19 @@ app.get('/api/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  // Send current state immediately on connect
   res.write(`event: agents\ndata: ${JSON.stringify(Object.values(agents))}\n\n`);
   res.write(`event: metrics\ndata: ${JSON.stringify({ ...metrics, uptimeMs: Date.now() - metrics.uptime })}\n\n`);
   res.write(`event: feed\ndata: ${JSON.stringify(activityFeed.slice(-50))}\n\n`);
+  res.write(`event: system\ndata: ${JSON.stringify(system)}\n\n`);
 
   sseClients.add(res);
-
   req.on('close', () => sseClients.delete(res));
 });
 
-// ── Start ─────────────────────────────────────────────────────────────────────
+// ── Start ────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
-  console.log(`Sai Dashboard running at http://localhost:${PORT}`);
+  console.log(`⚡ Sai Ops Dashboard — http://localhost:${PORT}`);
+  console.log(`  Gateway: localhost:${GATEWAY_PORT}`);
+  console.log(`  Version: ${openclawVersion}`);
 });
