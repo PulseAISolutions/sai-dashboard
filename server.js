@@ -1047,6 +1047,13 @@ app.get('/api/stream', (req, res) => {
 
 // ── Start ────────────────────────────────────────────────────────────────────
 
+process.on('uncaughtException', (err) => {
+  console.error('[CRASH] Uncaught exception:', err.message, err.stack);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[CRASH] Unhandled rejection:', reason);
+});
+
 app.listen(PORT, () => {
   console.log(`⚡ Sai Ops Dashboard — http://localhost:${PORT}`);
   console.log(`  Gateway: localhost:${GATEWAY_PORT}`);
