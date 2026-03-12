@@ -1335,18 +1335,22 @@ const agentState = {};
 let feedItems = [];
 let latestSystem = null;
 let deploymentMeta = null;
-let tunnelInfo = null;
+let dashboardMeta = null;
+let lastStateOk = false;
 
 const AGENT_META = {
-  sai:   { emoji: '⚡', name: 'Sai',   colorVar: '--purple' },
-  cody:  { emoji: '🧑‍💻', name: 'Cody',  colorVar: '--cyan' },
-  rory:  { emoji: '🔍', name: 'Rory',  colorVar: '--blue' },
-  jamal: { emoji: '✅', name: 'Jamal', colorVar: '--green' },
+  sai:   { emoji: '⚡', name: 'Sai' },
+  cody:  { emoji: '🧑‍💻', name: 'Cody' },
+  rory:  { emoji: '🔍', name: 'Rory' },
+  jamal: { emoji: '✅', name: 'Jamal' },
 };
 
 function relTime(ts) {
   if (!ts) return 'never';
-  const d = Math.floor((Date.now() - ts) / 1000);
+  const date = new Date(ts);
+  const base = isNaN(date.getTime()) ? Number(ts) : date.getTime();
+  if (!base) return 'never';
+  const d = Math.floor((Date.now() - base) / 1000);
   if (d < 5) return 'just now';
   if (d < 60) return `${d}s ago`;
   if (d < 3600) return `${Math.floor(d / 60)}m ago`;
@@ -1356,7 +1360,10 @@ function relTime(ts) {
 
 function shortTime(ts) {
   if (!ts) return '-';
-  const d = Math.floor((Date.now() - ts) / 1000);
+  const date = new Date(ts);
+  const base = isNaN(date.getTime()) ? Number(ts) : date.getTime();
+  if (!base) return '-';
+  const d = Math.floor((Date.now() - base) / 1000);
   if (d < 5) return 'now';
   if (d < 60) return `${d}s`;
   if (d < 3600) return `${Math.floor(d / 60)}m`;
@@ -1372,9 +1379,7 @@ function absTime(ts) {
 
 function humanElapsed(ts) {
   if (!ts) return 'unknown';
-  const d = new Date(ts).getTime();
-  if (!isFinite(d)) return 'unknown';
-  return relTime(d);
+  return relTime(ts);
 }
 
 function pipelineStatusTone(kind) {
@@ -1385,17 +1390,18 @@ function pipelineStatusTone(kind) {
 }
 
 function fmtUptime(ms) {
-  const s = Math.floor(ms / 1000);
+  const s = Math.floor((Number(ms) || 0) / 1000);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sc = s % 60;
   const pad = n => String(n).padStart(2, '0');
   return `${pad(h)}:${pad(m)}:${pad(sc)}`;
 }
 
 function fmtTokens(n) {
-  if (!n) return '0';
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
-  return String(n);
+  const value = Number(n) || 0;
+  if (!value) return '0';
+  if (value >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M';
+  if (value >= 1_000) return (value / 1_000).toFixed(1) + 'K';
+  return String(value);
 }
 
 function fmtRate(n) {
@@ -1409,8 +1415,7 @@ function fmtMinutes(minutes) {
   if (minutes < 60) return `${Math.round(minutes)} min`;
   const hours = Math.floor(minutes / 60);
   const mins = Math.round(minutes % 60);
-  if (!mins) return `${hours}h`;
-  return `${hours}h ${mins}m`;
+  return mins ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
 function esc(s) {
@@ -1424,27 +1429,49 @@ function modelInfo(model) {
   if (m.includes('claude')) cls = 'model-claude';
   else if (m.includes('gpt')) cls = 'model-gpt';
   else if (m.includes('unknown')) cls = 'model-unknown';
-
-  const text = model
-    .replace(/^anthropic\//i, '')
-    .replace(/^openai\//i, '');
-
+  const text = model.replace(/^anthropic\//i, '').replace(/^openai\//i, '');
   return { text, cls };
+}
+
+function renderBanner(meta) {
+  const banner = document.getElementById('status-banner');
+  const title = document.getElementById('status-banner-title');
+  const copy = document.getElementById('status-banner-copy');
+  const dot = document.getElementById('live-dot');
+  const label = document.getElementById('live-label');
+
+  if (meta?.status === 'live') {
+    banner.className = 'status-banner live';
+    title.textContent = 'Live upstream connected';
+    copy.textContent = meta.truth || meta.message || 'This deployment is proxying live OpenClaw state from a configured upstream API.';
+    dot.classList.remove('disconnected');
+    label.textContent = 'LIVE API';
+    label.style.color = 'var(--green)';
+  } else {
+    banner.className = 'status-banner degraded';
+    title.textContent = 'Live upstream unavailable';
+    copy.textContent = meta?.message || 'No live upstream API is configured or reachable. This dashboard is intentionally not pretending to be real-time.';
+    dot.classList.add('disconnected');
+    label.textContent = 'NO LIVE API';
+    label.style.color = 'var(--red)';
+  }
 }
 
 function renderAgents(agents) {
   const grid = document.getElementById('agents-grid');
-  agents.forEach(a => {
-    agentState[a.id] = a;
-    let card = document.getElementById(`agent-${a.id}`);
-    if (!card) {
-      card = document.createElement('div');
-      card.id = `agent-${a.id}`;
-      grid.appendChild(card);
-    }
+  const items = Array.isArray(agents) ? agents : [];
+  grid.innerHTML = '';
 
+  if (!items.length) {
+    grid.innerHTML = '<div class="agent-card OFFLINE" style="grid-column: 1 / -1;"><div class="card-task">No live agent data is being reported right now.</div></div>';
+    return;
+  }
+
+  items.forEach(a => {
+    agentState[a.id] = a;
+    const card = document.createElement('div');
     const model = modelInfo(a.model);
-    const pct = a.percentUsed || 0;
+    const pct = Number(a.percentUsed) || 0;
     const meta = AGENT_META[a.id] || { emoji: '●', name: a.id };
 
     card.className = `agent-card ${a.status}`;
@@ -1480,8 +1507,8 @@ function renderAgents(agents) {
           <span>${a.sessionCount || 0} session${(a.sessionCount || 0) !== 1 ? 's' : ''}</span>
           <span class="last-seen" data-ts="${a.lastSeen || ''}">${relTime(a.lastSeen)}</span>
         </div>
-      </div>
-    `;
+      </div>`;
+    grid.appendChild(card);
   });
 }
 
@@ -1489,20 +1516,16 @@ function makeFeedRow(item, animate) {
   const div = document.createElement('div');
   div.className = `feed-row type-${item.type || 'info'}`;
   if (!animate) div.style.animation = 'none';
-
   const meta = AGENT_META[item.agentId] || {};
-  const agentCls = `feed-agent-${item.agentId}`;
-
   div.innerHTML = `
     <div class="feed-dot dot-${item.type || 'info'}"></div>
     <div class="feed-body">
       <div class="feed-top-line">
-        <span class="feed-agent-name ${agentCls}">${meta.emoji || ''} ${meta.name || item.agentId}</span>
+        <span class="feed-agent-name feed-agent-${item.agentId}">${meta.emoji || ''} ${meta.name || item.agentId}</span>
         <span class="feed-time" data-ts="${item.ts}">${shortTime(item.ts)}</span>
       </div>
       <div class="feed-message">${esc(item.message)}</div>
-    </div>
-  `;
+    </div>`;
   return div;
 }
 
@@ -1510,19 +1533,13 @@ function renderFeedBatch(items) {
   const list = document.getElementById('feed-list');
   const empty = document.getElementById('feed-empty');
   if (empty) empty.remove();
-
   list.innerHTML = '';
-  [...items].reverse().forEach(item => list.appendChild(makeFeedRow(item, false)));
-  document.getElementById('feed-count').textContent = items.length;
-  list.scrollTop = 0;
-}
-
-function renderFeedItem(item) {
-  const list = document.getElementById('feed-list');
-  const empty = document.getElementById('feed-empty');
-  if (empty) empty.remove();
-
-  list.prepend(makeFeedRow(item, true));
+  const batch = Array.isArray(items) ? items : [];
+  [...batch].reverse().forEach(item => list.appendChild(makeFeedRow(item, false)));
+  if (!batch.length) {
+    list.innerHTML = '<div class="empty-feed"><span>No activity events available.</span></div>';
+  }
+  document.getElementById('feed-count').textContent = batch.length;
   list.scrollTop = 0;
 }
 
@@ -1530,33 +1547,27 @@ function renderMetrics(m) {
   document.getElementById('m-sessions').textContent = m.totalSessions || m.activeSessions || 0;
   document.getElementById('m-agents').textContent = m.activeAgents || 0;
   document.getElementById('m-tokens').textContent = fmtTokens(m.totalTokensUsed || 0);
-  if (m.uptimeMs != null) {
-    document.getElementById('m-uptime').textContent = fmtUptime(m.uptimeMs);
-  }
+  document.getElementById('m-uptime').textContent = m.uptimeMs != null ? fmtUptime(m.uptimeMs) : '--:--:--';
   renderUsage(m.usage || {});
 }
 
 function renderUsage(usage) {
   document.getElementById('usage-input').textContent = fmtTokens(usage.totalInputTokens || 0);
   document.getElementById('usage-output').textContent = fmtTokens(usage.totalOutputTokens || 0);
-
   const utilizationEl = document.getElementById('usage-utilization');
   if (usage.currentUtilizationPercent != null) {
     utilizationEl.textContent = `${Number(usage.currentUtilizationPercent).toFixed(1)}%`;
     utilizationEl.className = `usage-value ${usage.currentUtilizationPercent >= 80 ? 'warning' : 'good'}`;
   } else {
-    utilizationEl.textContent = 'Insufficient data';
+    utilizationEl.textContent = 'Unavailable';
     utilizationEl.className = 'usage-value';
   }
-
   const burnRateEl = document.getElementById('usage-burn-rate');
   burnRateEl.textContent = fmtRate(usage.burnRateTokensPerHour);
   burnRateEl.className = `usage-value ${usage.burnRateTokensPerHour ? 'highlight' : ''}`.trim();
-
   const etaEl = document.getElementById('usage-eta');
   etaEl.textContent = fmtMinutes(usage.projectedMinutesToFullContext);
   etaEl.className = `usage-value ${usage.projectedMinutesToFullContext != null ? 'warning' : ''}`.trim();
-
   const confidenceEl = document.getElementById('usage-confidence');
   const sample = Number(usage.recentSessionSample || 0);
   if (sample >= 4) {
@@ -1566,48 +1577,34 @@ function renderUsage(usage) {
     confidenceEl.textContent = `Light sample · ${sample} sessions`;
     confidenceEl.className = 'usage-value warning';
   } else {
-    confidenceEl.textContent = 'Waiting for sample';
+    confidenceEl.textContent = 'No live sample';
     confidenceEl.className = 'usage-value';
   }
-
-  document.getElementById('usage-note-copy').textContent = usage.forecastNote || 'Using recent session totals to estimate context pressure.';
-
+  document.getElementById('usage-note-copy').textContent = usage.forecastNote || 'Live usage data is unavailable.';
   const footnoteParts = [];
   if (usage.currentContextTokens) footnoteParts.push(`Known context: ${fmtTokens(usage.currentContextTokens)} tokens`);
   if (usage.activeMainSessionTokens) footnoteParts.push(`Main session load: ${fmtTokens(usage.activeMainSessionTokens)}`);
   if (usage.burnRateWindowMinutes) footnoteParts.push(`Window: last ${usage.burnRateWindowMinutes} min`);
-  document.getElementById('usage-footnote').textContent = footnoteParts.length ? footnoteParts.join(' · ') : 'No usage sample yet.';
+  document.getElementById('usage-footnote').textContent = footnoteParts.length ? footnoteParts.join(' · ') : 'No usage sample available from the current API source.';
 }
 
 function renderTeamContracts(contracts) {
   const container = document.getElementById('team-contracts');
-  if (!container) return;
   const items = Array.isArray(contracts) ? contracts : [];
   if (!items.length) {
-    container.innerHTML = '<div class="contract-item"><div class="contract-summary">No team contract data loaded.</div></div>';
+    container.innerHTML = '<div class="contract-item"><div class="contract-summary">Team contract data is only available from a live upstream API.</div></div>';
     return;
   }
-  container.innerHTML = items.map(item => `
-    <div class="contract-item">
-      <div class="contract-title">${esc(item.title || item.id || 'Role')}</div>
-      <div class="contract-summary">${esc(item.summary || '')}</div>
-    </div>
-  `).join('');
+  container.innerHTML = items.map(item => `<div class="contract-item"><div class="contract-title">${esc(item.title || item.id || 'Role')}</div><div class="contract-summary">${esc(item.summary || '')}</div></div>`).join('');
 }
 
 function renderSkills(skills) {
   const data = skills || {};
   document.getElementById('skills-total').textContent = fmtTokens(data.total || 0);
   document.getElementById('skills-new').textContent = fmtTokens(data.newCount || 0);
-
   const chipList = document.getElementById('skills-recent');
   const recent = Array.isArray(data.recent) ? data.recent : [];
-  if (!recent.length) {
-    chipList.innerHTML = '<span class="skill-chip">No recent skill data</span>';
-  } else {
-    chipList.innerHTML = recent.map(name => `<span class="skill-chip">${esc(name)}</span>`).join('');
-  }
-
+  chipList.innerHTML = recent.length ? recent.map(name => `<span class="skill-chip">${esc(name)}</span>`).join('') : '<span class="skill-chip">No live skill data</span>';
   const updated = data.updatedAt ? `Updated ${relTime(data.updatedAt)}` : 'Skill inventory unavailable';
   const total = data.total ? `${data.total} installed` : 'No skills found';
   const fresh = data.newCount ? ` · ${data.newCount} new recently` : '';
@@ -1616,40 +1613,16 @@ function renderSkills(skills) {
 
 function renderCronList(cronJobs) {
   const cronList = document.getElementById('cron-list');
-
   if (!cronJobs || cronJobs.length === 0) {
-    cronList.innerHTML = `
-      <div class="empty-feed">
-        <span>No cron jobs scheduled</span>
-      </div>
-    `;
+    cronList.innerHTML = '<div class="empty-feed"><span>No cron data available.</span></div>';
     return;
   }
-
   cronList.innerHTML = '';
   cronJobs.forEach(job => {
     const div = document.createElement('div');
     div.className = 'cron-job';
-    const statusColor = job.status === 'ok'
-      ? 'var(--green)'
-      : job.status === 'error'
-        ? 'var(--red)'
-        : job.status === 'running'
-          ? 'var(--yellow)'
-          : job.status === 'scheduled'
-            ? 'var(--cyan)'
-            : job.status === 'disabled'
-              ? 'var(--muted)'
-              : 'var(--muted)';
-    div.innerHTML = `
-      <div class="cron-job-top">
-        <span class="cron-job-name">${esc(job.name || 'Unnamed')}</span>
-        <span class="cron-job-status" style="color:${statusColor}">${esc(job.status || 'idle')}</span>
-      </div>
-      <div class="cron-job-meta">${esc(job.schedule || '')}</div>
-      ${job.next ? `<div class="cron-job-meta" style="margin-top:3px">Next: ${esc(job.next)}</div>` : ''}
-      ${job.error ? `<div class="cron-job-meta" style="margin-top:3px; color: var(--red)">Error: ${esc(job.error)}</div>` : ''}
-    `;
+    const statusColor = job.status === 'ok' ? 'var(--green)' : job.status === 'error' ? 'var(--red)' : job.status === 'running' ? 'var(--yellow)' : job.status === 'scheduled' ? 'var(--cyan)' : 'var(--muted)';
+    div.innerHTML = `<div class="cron-job-top"><span class="cron-job-name">${esc(job.name || 'Unnamed')}</span><span class="cron-job-status" style="color:${statusColor}">${esc(job.status || 'idle')}</span></div><div class="cron-job-meta">${esc(job.schedule || '')}</div>${job.next ? `<div class="cron-job-meta" style="margin-top:3px">Next: ${esc(job.next)}</div>` : ''}${job.error ? `<div class="cron-job-meta" style="margin-top:3px; color: var(--red)">Error: ${esc(job.error)}</div>` : ''}`;
     cronList.appendChild(div);
   });
 }
@@ -1659,51 +1632,41 @@ function renderPipeline() {
   const cronJobs = Array.isArray(sys.cronJobs) ? sys.cronJobs : [];
   const running = cronJobs.filter(job => job.status === 'running');
   const errors = cronJobs.filter(job => job.status === 'error');
-  const scheduled = cronJobs.filter(job => job.status === 'scheduled' || job.status === 'ok' || job.status === 'running');
-
   const signalEl = document.getElementById('pipeline-signal');
   const signalMetaEl = document.getElementById('pipeline-signal-meta');
-  if (running.length > 0) {
-    signalEl.textContent = running.length === 1 ? 'Cron job running' : `${running.length} cron jobs running`;
+  if (dashboardMeta?.status === 'live') {
+    signalEl.textContent = 'Live upstream active';
     signalEl.className = pipelineStatusTone('good');
-    signalMetaEl.textContent = running.map(job => job.name || 'Unnamed job').slice(0, 3).join(' ? ');
-  } else if (errors.length > 0) {
-    signalEl.textContent = 'No active pipeline signal';
-    signalEl.className = pipelineStatusTone('bad');
-    signalMetaEl.textContent = `${errors.length} scheduled job${errors.length !== 1 ? 's' : ''} recently errored. Presence and scheduler state are shown separately.`;
-  } else if (cronJobs.length > 0) {
-    signalEl.textContent = 'No active pipeline signal';
-    signalEl.className = pipelineStatusTone('off');
-    signalMetaEl.textContent = `Scheduler reachable ? ${scheduled.length}/${cronJobs.length} jobs enabled ? no running job reported right now.`;
+    signalMetaEl.textContent = dashboardMeta.upstreamBaseUrl ? `Source: ${dashboardMeta.upstreamBaseUrl}` : (dashboardMeta.message || 'Upstream OpenClaw API connected.');
   } else {
-    signalEl.textContent = 'No active pipeline signal';
-    signalEl.className = pipelineStatusTone('off');
-    signalMetaEl.textContent = 'No reliable scheduler data is available from the current API state.';
+    signalEl.textContent = 'No live upstream';
+    signalEl.className = pipelineStatusTone('warn');
+    signalMetaEl.textContent = dashboardMeta?.message || 'This deployment is honest about not having live state.';
   }
 
   const cronEl = document.getElementById('pipeline-cron');
   const cronMetaEl = document.getElementById('pipeline-cron-meta');
   if (cronJobs.length > 0) {
     const enabledCount = cronJobs.filter(job => job.status !== 'disabled').length;
-    cronEl.textContent = `${running.length} running ? ${enabledCount} enabled`;
+    cronEl.textContent = `${running.length} running · ${enabledCount} enabled`;
     cronEl.className = pipelineStatusTone(running.length > 0 ? 'good' : errors.length > 0 ? 'warn' : 'off');
     const nextJob = cronJobs.find(job => job.next && job.next !== 'Running now');
-    cronMetaEl.textContent = nextJob ? `Next scheduled: ${nextJob.name || 'Unnamed'} ? ${nextJob.next}` : 'No next-run data reported.';
+    cronMetaEl.textContent = nextJob ? `Next scheduled: ${nextJob.name || 'Unnamed'} · ${nextJob.next}` : 'No next-run data reported.';
   } else {
-    cronEl.textContent = 'No cron data';
+    cronEl.textContent = dashboardMeta?.status === 'live' ? 'No cron data' : 'Unavailable';
     cronEl.className = pipelineStatusTone('off');
-    cronMetaEl.textContent = 'This dashboard only reports scheduled work when the API exposes it.';
+    cronMetaEl.textContent = dashboardMeta?.status === 'live' ? 'This upstream did not return cron job details.' : 'Cron state requires a reachable upstream API.';
   }
 
   const deployEl = document.getElementById('pipeline-deploy');
   const deployMetaEl = document.getElementById('pipeline-deploy-meta');
-  if (deploymentMeta && deploymentMeta.deployedAt) {
+  if (deploymentMeta?.deployedAt) {
     deployEl.textContent = humanElapsed(deploymentMeta.deployedAt);
     deployEl.className = pipelineStatusTone('good');
     const bits = [absTime(deploymentMeta.deployedAt)];
     if (deploymentMeta.gitCommit) bits.push(`commit ${deploymentMeta.gitCommit.slice(0, 7)}`);
     if (deploymentMeta.vercelUrl) bits.push(deploymentMeta.vercelUrl.replace(/^https?:\/\//, ''));
-    deployMetaEl.textContent = bits.join(' ? ');
+    deployMetaEl.textContent = bits.join(' · ');
   } else {
     deployEl.textContent = 'Unknown';
     deployEl.className = pipelineStatusTone('off');
@@ -1712,180 +1675,105 @@ function renderPipeline() {
 
   const bridgeEl = document.getElementById('pipeline-bridge');
   const bridgeMetaEl = document.getElementById('pipeline-bridge-meta');
-  if (tunnelInfo && tunnelInfo.updatedAt) {
-    bridgeEl.textContent = humanElapsed(tunnelInfo.updatedAt);
-    bridgeEl.className = pipelineStatusTone('warn');
-    const apiBase = tunnelInfo.apiBase ? String(tunnelInfo.apiBase).replace(/^https?:\/\//, '') : 'unknown API';
-    bridgeMetaEl.textContent = `${absTime(tunnelInfo.updatedAt)} ? ${apiBase}`;
+  if (dashboardMeta?.upstreamBaseUrl) {
+    bridgeEl.textContent = dashboardMeta.status === 'live' ? 'Configured' : 'Configured but down';
+    bridgeEl.className = pipelineStatusTone(dashboardMeta.status === 'live' ? 'good' : 'warn');
+    bridgeMetaEl.textContent = `${dashboardMeta.upstreamBaseUrl} · ${dashboardMeta.message || ''}`.trim();
   } else {
-    bridgeEl.textContent = 'Unknown';
+    bridgeEl.textContent = 'Not configured';
     bridgeEl.className = pipelineStatusTone('off');
-    bridgeMetaEl.textContent = 'Tunnel status not loaded yet.';
+    bridgeMetaEl.textContent = 'No hidden tunnel auto-discovery is used anymore. A real upstream must be configured explicitly.';
   }
+
+  document.getElementById('pipeline-truth-note').textContent = dashboardMeta?.truth || 'This dashboard distinguishes between a real live upstream and a public shell with no active data source.';
 }
 
 function renderSystem(sys) {
-  if (!sys) return;
-  latestSystem = sys;
-  renderPipeline();
-
-  renderSkills(sys.skills || {});
-
+  latestSystem = sys || {};
+  renderSkills(latestSystem.skills || {});
   const versionLabel = document.getElementById('version-label');
   const versionDetail = document.getElementById('sys-version');
   const versionBadge = document.getElementById('sys-version-badge');
-  if (sys.openclawVersion) {
-    versionLabel.textContent = sys.openclawVersion;
-    const parts = sys.openclawVersion.split(' ');
+  if (latestSystem.openclawVersion) {
+    versionLabel.textContent = latestSystem.openclawVersion;
+    const parts = String(latestSystem.openclawVersion).split(' ');
     versionDetail.textContent = parts[0] || 'OpenClaw';
-    versionBadge.textContent = parts[1] || '';
+    versionBadge.textContent = parts[1] || 'API';
     versionBadge.className = 'sys-value sys-num';
+  } else {
+    versionDetail.textContent = 'Unavailable';
+    versionBadge.textContent = '-';
+    versionBadge.className = 'sys-value sys-off';
   }
-
   const ttsStatus = document.getElementById('sys-tts-status');
   const ttsDetail = document.getElementById('sys-tts-detail');
-  if (sys.ttsStatus === 'ok') {
-    ttsStatus.textContent = 'Online';
-    ttsStatus.className = 'sys-value sys-ok';
-  } else {
-    ttsStatus.textContent = 'Offline';
-    ttsStatus.className = 'sys-value sys-off';
-  }
-  if (sys.ttsModel) {
-    ttsDetail.textContent = sys.ttsModel.replace(/-/g, ' ');
-  }
-
-  if (sys.gatewayPort) {
-    document.getElementById('sys-gateway-detail').textContent = `Port ${sys.gatewayPort}`;
-  }
-
-  const cronCount = Number(sys.cronCount || (Array.isArray(sys.cronJobs) ? sys.cronJobs.length : 0) || 0);
+  ttsStatus.textContent = latestSystem.ttsStatus === 'ok' ? 'Online' : 'Unavailable';
+  ttsStatus.className = `sys-value ${latestSystem.ttsStatus === 'ok' ? 'sys-ok' : 'sys-off'}`;
+  ttsDetail.textContent = latestSystem.ttsModel ? String(latestSystem.ttsModel).replace(/-/g, ' ') : 'Live upstream required';
+  document.getElementById('sys-gateway-detail').textContent = latestSystem.gatewayPort ? `Port ${latestSystem.gatewayPort}` : 'Live upstream required';
+  const cronCount = Number(latestSystem.cronCount || (Array.isArray(latestSystem.cronJobs) ? latestSystem.cronJobs.length : 0) || 0);
   document.getElementById('sys-cron-count').textContent = cronCount;
   document.getElementById('sys-cron-detail').textContent = cronCount === 1 ? '1 scheduled task' : `${cronCount} scheduled tasks`;
-
   const hbDetail = document.getElementById('sys-heartbeat-detail');
   const hbBadge = document.getElementById('sys-heartbeat');
-  hbDetail.textContent = `${sys.heartbeatModel || 'unknown'} · every ${sys.heartbeatInterval || 'unknown'}`;
-  const hbEnabled = sys.heartbeatInterval && sys.heartbeatInterval !== 'disabled';
-  hbBadge.textContent = hbEnabled ? 'Active' : 'Disabled';
+  hbDetail.textContent = `${latestSystem.heartbeatModel || 'unknown'} · every ${latestSystem.heartbeatInterval || 'unknown'}`;
+  const hbEnabled = latestSystem.heartbeatInterval && latestSystem.heartbeatInterval !== 'disabled' && latestSystem.heartbeatInterval !== 'unknown';
+  hbBadge.textContent = hbEnabled ? 'Active' : 'Unavailable';
   hbBadge.className = `sys-value ${hbEnabled ? 'sys-ok' : 'sys-off'}`;
-
   const gatewayBadge = document.getElementById('sys-gateway-status');
-  gatewayBadge.textContent = 'Online';
-  gatewayBadge.className = 'sys-value sys-ok';
-
-  renderCronList(sys.cronJobs || []);
-  renderTeamContracts(sys.teamContracts || []);
+  gatewayBadge.textContent = dashboardMeta?.status === 'live' ? 'Proxied' : 'Offline';
+  gatewayBadge.className = `sys-value ${dashboardMeta?.status === 'live' ? 'sys-ok' : 'sys-off'}`;
+  renderCronList(latestSystem.cronJobs || []);
+  renderTeamContracts(latestSystem.teamContracts || []);
+  renderPipeline();
 }
 
 setInterval(() => {
   document.querySelectorAll('[data-ts]').forEach(el => {
-    const ts = parseInt(el.dataset.ts, 10);
-    if (!isNaN(ts)) {
+    const ts = el.dataset.ts;
+    if (ts) {
       el.textContent = el.classList.contains('feed-time') ? shortTime(ts) : relTime(ts);
     }
   });
 }, 5000);
 
-const params = new URLSearchParams(window.location.search);
-const savedApiBase = window.localStorage.getItem('sai_api_base') || '';
-const requestedApiBase = params.get('api') || window.SAI_API_BASE || savedApiBase || '';
-let activeApiBase = requestedApiBase.replace(/\/$/, '');
-if (params.get('api')) {
-  window.localStorage.setItem('sai_api_base', activeApiBase);
-}
-
-let es;
-let statePoll;
-
 async function refreshState() {
-  const res = await fetch((activeApiBase || '') + '/api/state', { cache: 'no-store' });
+  const res = await fetch('/api/state', { cache: 'no-store' });
   const data = await res.json();
+  lastStateOk = res.ok;
+  dashboardMeta = data.dashboard || null;
+  deploymentMeta = data.dashboard?.deployment || deploymentMeta;
+  renderBanner(dashboardMeta);
   renderAgents(data.agents || []);
   renderMetrics(data.metrics || {});
   renderSystem(data.system || {});
   feedItems = data.feed || [];
   renderFeedBatch(feedItems);
-  renderPipeline();
-}
-
-function startStatePolling() {
-  if (statePoll) clearInterval(statePoll);
-  statePoll = setInterval(async () => {
-    try {
-      await refreshState();
-    } catch (_) {}
-  }, 1000);
-}
-
-function connect() {
-  es = new EventSource(activeApiBase + '/api/stream');
-
-  es.addEventListener('agents', e => renderAgents(JSON.parse(e.data)));
-  es.addEventListener('metrics', e => renderMetrics(JSON.parse(e.data)));
-  es.addEventListener('system', e => renderSystem(JSON.parse(e.data)));
-  es.addEventListener('feed', e => {
-    feedItems = JSON.parse(e.data);
-    renderFeedBatch(feedItems);
-  });
-  es.addEventListener('activity', e => {
-    const item = JSON.parse(e.data);
-    feedItems.push(item);
-    if (feedItems.length > 120) feedItems.shift();
-    renderFeedItem(item);
-    document.getElementById('feed-count').textContent = feedItems.length;
-    renderPipeline();
-  });
-
-  es.onopen = () => {
-    const dot = document.getElementById('live-dot');
-    const label = document.getElementById('live-label');
-    dot.classList.remove('disconnected');
-    label.textContent = 'LIVE';
-    label.style.color = 'var(--green)';
-  };
-
-  es.onerror = () => {
-    const dot = document.getElementById('live-dot');
-    const label = document.getElementById('live-label');
-    dot.classList.add('disconnected');
-    label.textContent = 'RECONNECTING';
-    label.style.color = 'var(--red)';
-    es.close();
-    setTimeout(connect, 3000);
-  };
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.lucide) lucide.createIcons();
   try {
-    if (!activeApiBase) {
-      const infoRes = await fetch('/tunnel-info.json', { cache: 'no-store' });
-      if (infoRes.ok) {
-        const info = await infoRes.json();
-        tunnelInfo = info;
-        if (info && info.apiBase) activeApiBase = String(info.apiBase).replace(/\/$/, '');
-      }
-    }
+    const metaRes = await fetch('/dashboard-meta.json', { cache: 'no-store' });
+    if (metaRes.ok) deploymentMeta = await metaRes.json();
+  } catch (_) {}
 
-    try {
-      const metaRes = await fetch('/dashboard-meta.json', { cache: 'no-store' });
-      if (metaRes.ok) deploymentMeta = await metaRes.json();
-    } catch (_) {}
-
-    renderPipeline();
-
-    if (activeApiBase) {
-      window.localStorage.setItem('sai_api_base', activeApiBase);
-    }
-
-    connect();
-    startStatePolling();
+  try {
     await refreshState();
   } catch (_) {
-    connect();
-    startStatePolling();
+    renderBanner({ status: 'degraded', message: 'Dashboard API could not be reached from this deployment.' });
   }
+
+  setInterval(async () => {
+    try {
+      await refreshState();
+    } catch (_) {
+      if (lastStateOk) {
+        renderBanner({ status: 'degraded', message: 'Dashboard API polling failed after a previous successful refresh.' });
+      }
+      lastStateOk = false;
+    }
+  }, 5000);
 });
 </script>
 </body>
