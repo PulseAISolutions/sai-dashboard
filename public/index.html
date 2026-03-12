@@ -985,6 +985,69 @@
     .sys-value,
     .cron-job-status { white-space: normal; }
   }
+
+
+  .pipeline-panel {
+    padding: 20px 24px 24px;
+  }
+
+  .pipeline-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .pipeline-card {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    padding: 16px;
+    min-width: 0;
+  }
+
+  .pipeline-card.full-span {
+    grid-column: 1 / -1;
+  }
+
+  .pipeline-kicker {
+    font-size: 0.68rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.3px;
+    margin-bottom: 8px;
+    font-weight: 700;
+  }
+
+  .pipeline-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    line-height: 1.35;
+    color: var(--text);
+  }
+
+  .pipeline-value.good { color: var(--green); }
+  .pipeline-value.warn { color: var(--yellow); }
+  .pipeline-value.off { color: var(--text-secondary); }
+  .pipeline-value.bad { color: var(--red); }
+
+  .pipeline-meta {
+    margin-top: 8px;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+
+  .pipeline-note {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(6, 182, 212, 0.12);
+    background: rgba(6, 182, 212, 0.06);
+    color: var(--text-secondary);
+    font-size: 0.84rem;
+    line-height: 1.5;
+  }
+
 </style>
 </head>
 <body>
@@ -1035,6 +1098,39 @@
         Agent Status
       </div>
       <div class="agents-grid" id="agents-grid"></div>
+    </section>
+
+    <section class="panel pipeline-panel">
+      <div class="section-label">
+        <i data-lucide="workflow"></i>
+        Pipeline & Background Work
+      </div>
+      <div class="pipeline-grid">
+        <div class="pipeline-card">
+          <div class="pipeline-kicker">Background signal</div>
+          <div class="pipeline-value off" id="pipeline-signal">Loading?</div>
+          <div class="pipeline-meta" id="pipeline-signal-meta">Checking cron and recent activity?</div>
+        </div>
+        <div class="pipeline-card">
+          <div class="pipeline-kicker">Cron / scheduled work</div>
+          <div class="pipeline-value off" id="pipeline-cron">Loading?</div>
+          <div class="pipeline-meta" id="pipeline-cron-meta">Waiting for scheduler state?</div>
+        </div>
+        <div class="pipeline-card">
+          <div class="pipeline-kicker">Last dashboard deploy</div>
+          <div class="pipeline-value off" id="pipeline-deploy">Unknown</div>
+          <div class="pipeline-meta" id="pipeline-deploy-meta">No deployed build metadata yet.</div>
+        </div>
+        <div class="pipeline-card">
+          <div class="pipeline-kicker">Bridge / API refresh</div>
+          <div class="pipeline-value off" id="pipeline-bridge">Unknown</div>
+          <div class="pipeline-meta" id="pipeline-bridge-meta">Tunnel status not loaded yet.</div>
+        </div>
+        <div class="pipeline-card full-span">
+          <div class="pipeline-kicker">Why this panel exists</div>
+          <div class="pipeline-meta" id="pipeline-truth-note">Agent cards show recent session presence. Scheduled jobs, pipeline tasks, or bridge refreshes can happen separately, so ?offline? here does not automatically mean ?nothing is happening.?</div>
+        </div>
+      </div>
     </section>
 
     <section class="panel usage-panel">
@@ -1197,6 +1293,9 @@
 <script>
 const agentState = {};
 let feedItems = [];
+let latestSystem = null;
+let deploymentMeta = null;
+let tunnelInfo = null;
 
 const AGENT_META = {
   sai:   { emoji: '⚡', name: 'Sai',   colorVar: '--purple' },
@@ -1223,6 +1322,26 @@ function shortTime(ts) {
   if (d < 3600) return `${Math.floor(d / 60)}m`;
   if (d < 86400) return `${Math.floor(d / 3600)}h`;
   return `${Math.floor(d / 86400)}d`;
+}
+
+function absTime(ts) {
+  if (!ts) return 'Unknown';
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? 'Unknown' : d.toLocaleString();
+}
+
+function humanElapsed(ts) {
+  if (!ts) return 'unknown';
+  const d = new Date(ts).getTime();
+  if (!isFinite(d)) return 'unknown';
+  return relTime(d);
+}
+
+function pipelineStatusTone(kind) {
+  if (kind === 'good') return 'pipeline-value good';
+  if (kind === 'warn') return 'pipeline-value warn';
+  if (kind === 'bad') return 'pipeline-value bad';
+  return 'pipeline-value off';
 }
 
 function fmtUptime(ms) {
@@ -1495,8 +1614,80 @@ function renderCronList(cronJobs) {
   });
 }
 
+function renderPipeline() {
+  const sys = latestSystem || {};
+  const cronJobs = Array.isArray(sys.cronJobs) ? sys.cronJobs : [];
+  const running = cronJobs.filter(job => job.status === 'running');
+  const errors = cronJobs.filter(job => job.status === 'error');
+  const scheduled = cronJobs.filter(job => job.status === 'scheduled' || job.status === 'ok' || job.status === 'running');
+
+  const signalEl = document.getElementById('pipeline-signal');
+  const signalMetaEl = document.getElementById('pipeline-signal-meta');
+  if (running.length > 0) {
+    signalEl.textContent = running.length === 1 ? 'Cron job running' : `${running.length} cron jobs running`;
+    signalEl.className = pipelineStatusTone('good');
+    signalMetaEl.textContent = running.map(job => job.name || 'Unnamed job').slice(0, 3).join(' ? ');
+  } else if (errors.length > 0) {
+    signalEl.textContent = 'No active pipeline signal';
+    signalEl.className = pipelineStatusTone('bad');
+    signalMetaEl.textContent = `${errors.length} scheduled job${errors.length !== 1 ? 's' : ''} recently errored. Presence and scheduler state are shown separately.`;
+  } else if (cronJobs.length > 0) {
+    signalEl.textContent = 'No active pipeline signal';
+    signalEl.className = pipelineStatusTone('off');
+    signalMetaEl.textContent = `Scheduler reachable ? ${scheduled.length}/${cronJobs.length} jobs enabled ? no running job reported right now.`;
+  } else {
+    signalEl.textContent = 'No active pipeline signal';
+    signalEl.className = pipelineStatusTone('off');
+    signalMetaEl.textContent = 'No reliable scheduler data is available from the current API state.';
+  }
+
+  const cronEl = document.getElementById('pipeline-cron');
+  const cronMetaEl = document.getElementById('pipeline-cron-meta');
+  if (cronJobs.length > 0) {
+    const enabledCount = cronJobs.filter(job => job.status !== 'disabled').length;
+    cronEl.textContent = `${running.length} running ? ${enabledCount} enabled`;
+    cronEl.className = pipelineStatusTone(running.length > 0 ? 'good' : errors.length > 0 ? 'warn' : 'off');
+    const nextJob = cronJobs.find(job => job.next && job.next !== 'Running now');
+    cronMetaEl.textContent = nextJob ? `Next scheduled: ${nextJob.name || 'Unnamed'} ? ${nextJob.next}` : 'No next-run data reported.';
+  } else {
+    cronEl.textContent = 'No cron data';
+    cronEl.className = pipelineStatusTone('off');
+    cronMetaEl.textContent = 'This dashboard only reports scheduled work when the API exposes it.';
+  }
+
+  const deployEl = document.getElementById('pipeline-deploy');
+  const deployMetaEl = document.getElementById('pipeline-deploy-meta');
+  if (deploymentMeta && deploymentMeta.deployedAt) {
+    deployEl.textContent = humanElapsed(deploymentMeta.deployedAt);
+    deployEl.className = pipelineStatusTone('good');
+    const bits = [absTime(deploymentMeta.deployedAt)];
+    if (deploymentMeta.gitCommit) bits.push(`commit ${deploymentMeta.gitCommit.slice(0, 7)}`);
+    if (deploymentMeta.vercelUrl) bits.push(deploymentMeta.vercelUrl.replace(/^https?:\/\//, ''));
+    deployMetaEl.textContent = bits.join(' ? ');
+  } else {
+    deployEl.textContent = 'Unknown';
+    deployEl.className = pipelineStatusTone('off');
+    deployMetaEl.textContent = 'No deployed build metadata yet.';
+  }
+
+  const bridgeEl = document.getElementById('pipeline-bridge');
+  const bridgeMetaEl = document.getElementById('pipeline-bridge-meta');
+  if (tunnelInfo && tunnelInfo.updatedAt) {
+    bridgeEl.textContent = humanElapsed(tunnelInfo.updatedAt);
+    bridgeEl.className = pipelineStatusTone('warn');
+    const apiBase = tunnelInfo.apiBase ? String(tunnelInfo.apiBase).replace(/^https?:\/\//, '') : 'unknown API';
+    bridgeMetaEl.textContent = `${absTime(tunnelInfo.updatedAt)} ? ${apiBase}`;
+  } else {
+    bridgeEl.textContent = 'Unknown';
+    bridgeEl.className = pipelineStatusTone('off');
+    bridgeMetaEl.textContent = 'Tunnel status not loaded yet.';
+  }
+}
+
 function renderSystem(sys) {
   if (!sys) return;
+  latestSystem = sys;
+  renderPipeline();
 
   renderSkills(sys.skills || {});
 
@@ -1575,6 +1766,7 @@ async function refreshState() {
   renderSystem(data.system || {});
   feedItems = data.feed || [];
   renderFeedBatch(feedItems);
+  renderPipeline();
 }
 
 function startStatePolling() {
@@ -1602,6 +1794,7 @@ function connect() {
     if (feedItems.length > 120) feedItems.shift();
     renderFeedItem(item);
     document.getElementById('feed-count').textContent = feedItems.length;
+    renderPipeline();
   });
 
   es.onopen = () => {
@@ -1630,9 +1823,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       const infoRes = await fetch('/tunnel-info.json', { cache: 'no-store' });
       if (infoRes.ok) {
         const info = await infoRes.json();
+        tunnelInfo = info;
         if (info && info.apiBase) activeApiBase = String(info.apiBase).replace(/\/$/, '');
       }
     }
+
+    try {
+      const metaRes = await fetch('/dashboard-meta.json', { cache: 'no-store' });
+      if (metaRes.ok) deploymentMeta = await metaRes.json();
+    } catch (_) {}
+
+    renderPipeline();
 
     if (activeApiBase) {
       window.localStorage.setItem('sai_api_base', activeApiBase);
