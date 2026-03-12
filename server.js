@@ -449,7 +449,7 @@ async function fetchTTSHealth() {
 function summarizeText(value, max = 160) {
   const clean = String(value || '').replace(/\s+/g, ' ').trim();
   if (!clean) return '';
-  return clean.length > max ? clean.slice(0, max - 1).trimEnd() + '?' : clean;
+  return clean.length > max ? `${clean.slice(0, Math.max(max - 1, 1)).trimEnd()}…` : clean;
 }
 
 function flattenTextContent(content) {
@@ -489,12 +489,93 @@ async function readRecentJsonLines(filePath, maxLines = 160) {
   return parsed;
 }
 
+const LOW_SIGNAL_MESSAGES = new Set([
+  'hi', 'hello', 'hey', 'yo', 'sup', 'ok', 'okay', 'kk', 'k', 'yes', 'yep', 'yeah', 'sure', 'thanks', 'thank you', 'ty', 'cool', 'nice', 'got it', 'sounds good', 'done'
+]);
+
+function cleanOperatorText(value) {
+  return String(value || '')
+    .replace(/<<<[\s\S]+?>>>/g, ' ')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/\b[A-Z]:\\[^\s]+/g, ' ')
+    .replace(/\bsource:\s*subagent\b/gi, ' ')
+    .replace(/\bsession_(?:key|id):\s*\S+/gi, ' ')
+    .replace(/\bstatus:\s*completed successfully\b/gi, ' ')
+    .replace(/\bStats:[\s\S]*$/i, ' ')
+    .replace(/\bAction:[\s\S]*$/i, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isLowSignalText(text) {
+  const clean = cleanOperatorText(text).toLowerCase().replace(/[.!?,]+$/g, '').trim();
+  if (!clean) return true;
+  if (LOW_SIGNAL_MESSAGES.has(clean)) return true;
+  if (clean.length <= 3 && /^[a-z]+$/.test(clean)) return true;
+  return false;
+}
+
+function normalizeTaskText(text) {
+  const clean = cleanOperatorText(text)
+    .replace(/^You are [^.]+\.?/i, '')
+    .replace(/^TASK:\s*/i, '')
+    .replace(/^DELIVERABLE:\s*/i, '')
+    .replace(/^Context:\s*/i, '')
+    .trim();
+  return summarizeText(clean, 150);
+}
+
+function extractTaskSummary(text) {
+  const raw = String(text || '');
+  const patterns = [
+    /(?:^|\n)TASK:\s*([\s\S]+?)(?:\n\n|\n[A-Z][A-Z _-]+:|$)/i,
+    /(?:^|\n)Subagent Task:\s*([\s\S]+?)(?:\n\n|$)/i,
+    /(?:^|\n)task:\s*([\s\S]+?)(?:\nstatus:|$)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (match?.[1]) {
+      const firstMeaningfulLine = match[1]
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .find(line => line && !/^[-*\d.)\s]+$/.test(line) && !/^(context|constraints|deliverable|goal|required outcome):/i.test(line));
+      if (firstMeaningfulLine) return normalizeTaskText(firstMeaningfulLine);
+    }
+  }
+  return normalizeTaskText(raw);
+}
+
+function extractUsefulResultSummary(text) {
+  const raw = String(text || '')
+    .replace(/<<<BEGIN_UNTRUSTED_CHILD_RESULT>>>/g, '')
+    .replace(/<<<END_UNTRUSTED_CHILD_RESULT>>>/g, '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/\b[A-Z]:\\[^\s]+/g, ' ')
+    .replace(/^Done\.\s*/i, '')
+    .replace(/^Accomplished:\s*/i, '')
+    .trim();
+
+  const lines = raw
+    .split(/\r?\n/)
+    .map(line => line.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean)
+    .filter(line => !/^what i found:?$/i.test(line))
+    .filter(line => !/^relevant details:?$/i.test(line))
+    .filter(line => !/^exact paths changed:?$/i.test(line))
+    .filter(line => !/^verified(?: scaffold output)?:?$/i.test(line))
+    .filter(line => !/^deliverable:?$/i.test(line))
+    .filter(line => !/^one note:?$/i.test(line))
+    .filter(line => !/^top \d+:?$/i.test(line))
+    .filter(line => !/^live url:?$/i.test(line))
+    .filter(line => !/^[A-Z]:\\/i.test(line))
+    .filter(line => !/^you are /i.test(line));
+
+  const best = lines.find(line => line.length > 24 && !/^(run|then|fast next step|return):/i.test(line)) || lines[0] || cleanOperatorText(raw);
+  return summarizeText(cleanOperatorText(best), 160);
+}
+
 function parseTaskLabelFromText(text) {
-  const clean = summarizeText(text, 220);
-  if (!clean) return '';
-  const match = clean.match(/(?:TASK|Task|Subagent Task|Subagent task):\s*(.+)/);
-  if (match) return summarizeText(match[1], 150);
-  return clean;
+  return extractTaskSummary(text);
 }
 
 function extractUserIntentText(content) {
@@ -506,22 +587,36 @@ function extractUserIntentText(content) {
     .filter(Boolean)
     .filter(line => !line.startsWith('Conversation info'))
     .filter(line => !line.startsWith('Sender (untrusted metadata)'))
-    .filter(line => line !== '```json' && line !== '```');
+    .filter(line => line !== '```json' && line !== '```')
+    .filter(line => !/^\[.*\]$/.test(line))
+    .filter(line => !/^This context is runtime-generated/i.test(line))
+    .filter(line => !/^OpenClaw runtime context/i.test(line));
 
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     const line = lines[i];
-    if (!line.startsWith('{') && !line.startsWith('}') && !line.startsWith('"')) {
-      return summarizeText(line, 160);
+    if (!line.startsWith('{') && !line.startsWith('}') && !line.startsWith('"') && !isLowSignalText(line)) {
+      return summarizeText(cleanOperatorText(line), 160);
     }
   }
 
-  return summarizeText(text, 160);
+  const combined = summarizeText(cleanOperatorText(text), 160);
+  return isLowSignalText(combined) ? '' : combined;
+}
+
+function inferNextStepFromText(text) {
+  const clean = cleanOperatorText(text);
+  if (!clean) return '';
+  const match = clean.match(/(?:next step|fast next step|recommended next step)s?:\s*([\s\S]+)/i);
+  if (match?.[1]) return summarizeText(match[1].split(/\r?\n/)[0], 180);
+  if (/\bdeploy\b/i.test(clean)) return 'Deploy the finished patch and verify the live dashboard output.';
+  if (/\bverify|test|smoke-test\b/i.test(clean)) return 'Verify the latest patch locally and confirm the operator cards read cleanly.';
+  return '';
 }
 
 async function buildOperatorStatus(snapshot) {
   const mainGroup = snapshot?.sessions?.byAgent?.find(entry => entry.agentId === 'sai');
   const mainSession = mainGroup?.recent?.[0] || null;
-  const mainEvents = await readRecentJsonLines(mainSession?.sessionFile, 220);
+  const mainEvents = await readRecentJsonLines(mainSession?.sessionFile, 260);
 
   const activeSubagents = (snapshot?.sessions?.recent || [])
     .filter(session => String(session.key || '').includes(':subagent:') && safeNumber(session.age) < 300000)
@@ -529,18 +624,32 @@ async function buildOperatorStatus(snapshot) {
 
   const recentMessages = mainEvents
     .filter(event => event?.type === 'message' && event?.message?.role)
-    .slice(-80);
+    .slice(-120);
 
-  const latestUserMessage = [...recentMessages].reverse().find(event => event.message.role === 'user');
+  const meaningfulUserMessages = [...recentMessages]
+    .reverse()
+    .filter(event => event.message.role === 'user')
+    .filter(event => !flattenTextContent(event.message.content).includes('[Internal task completion event]'))
+    .map(event => ({ event, text: extractUserIntentText(event.message.content) }))
+    .filter(item => item.text);
+
+  const latestMeaningfulUser = meaningfulUserMessages[0]?.event || null;
+  const latestMeaningfulUserText = meaningfulUserMessages[0]?.text || '';
+
   const latestAssistantFinal = [...recentMessages].reverse().find(event => {
     if (event.message.role !== 'assistant') return false;
     return Array.isArray(event.message.content) && event.message.content.some(part => part?.textSignature?.phase === 'final_answer');
   });
 
+  const latestAssistantCommentary = [...recentMessages].reverse().find(event => {
+    if (event.message.role !== 'assistant') return false;
+    return Array.isArray(event.message.content) && event.message.content.some(part => part?.textSignature?.phase === 'commentary');
+  });
+
   const completionEvents = recentMessages
     .filter(event => event.message.role === 'user')
     .filter(event => flattenTextContent(event.message.content).includes('[Internal task completion event]'))
-    .slice(-8)
+    .slice(-10)
     .reverse();
 
   const done = [];
@@ -549,27 +658,32 @@ async function buildOperatorStatus(snapshot) {
     const text = flattenTextContent(event.message.content);
     const taskMatch = text.match(/task:\s*([\s\S]+?)status:\s*completed successfully/i);
     const resultMatch = text.match(/<<<BEGIN_UNTRUSTED_CHILD_RESULT>>>[\s\S]+?<<<END_UNTRUSTED_CHILD_RESULT>>>/i);
+    const label = extractTaskSummary(taskMatch ? taskMatch[1] : 'Completed subagent task');
+    const detail = extractUsefulResultSummary(resultMatch ? resultMatch[0] : text);
     done.push({
       type: 'subagent',
-      label: summarizeText(taskMatch ? taskMatch[1].split('\n')[0] : 'Subagent task completed', 120),
-      detail: summarizeText(resultMatch ? resultMatch[0].replace(/<<<[\s\S]+?>>>/g, ' ') : 'Recent subagent completion captured from session history.', 200),
+      label: label || 'Completed subagent task',
+      detail: detail || 'Completed work captured from recent session history.',
       ts: event.timestamp || Date.now(),
     });
-    if (done.length >= 3) break;
+    if (done.length >= 4) break;
   }
 
   if (latestAssistantFinal) {
-    done.unshift({
-      type: 'reply',
-      label: 'Last delivered update',
-      detail: summarizeText(flattenTextContent(latestAssistantFinal.message.content), 200),
-      ts: latestAssistantFinal.timestamp || Date.now(),
-    });
+    const replyText = extractUsefulResultSummary(flattenTextContent(latestAssistantFinal.message.content));
+    if (replyText) {
+      done.unshift({
+        type: 'reply',
+        label: 'Last delivered update',
+        detail: replyText,
+        ts: latestAssistantFinal.timestamp || Date.now(),
+      });
+    }
   }
 
   const activeSubagentSummaries = [];
   for (const session of activeSubagents.slice(0, 3)) {
-    const subEvents = await readRecentJsonLines(session.sessionFile, 60);
+    const subEvents = await readRecentJsonLines(session.sessionFile, 80);
     const latestTaskEvent = [...subEvents].reverse().find(event => event?.type === 'message' && event?.message?.role === 'user');
     activeSubagentSummaries.push({
       agentId: parseAgentFromSessionKey(session.key),
@@ -579,49 +693,53 @@ async function buildOperatorStatus(snapshot) {
     });
   }
 
-  let now = null;
-  if (activeSubagentSummaries.length > 0 || latestUserMessage) {
-    now = {
-      label: activeSubagentSummaries.length > 0
-        ? extractUserIntentText(latestUserMessage?.message?.content) || 'Active operator request'
-        : extractUserIntentText(latestUserMessage?.message?.content) || 'Monitoring for next request',
-      detail: activeSubagentSummaries.length > 0
-        ? `${activeSubagentSummaries.length} subagent${activeSubagentSummaries.length === 1 ? '' : 's'} running: ${activeSubagentSummaries.map(item => `${agents[item.agentId]?.name || item.agentId} ? ${item.label}`).join(' ? ')}`
-        : 'No subagents are running right now.',
-      source: activeSubagentSummaries.length > 0 ? 'Live session + subagent session files' : 'Recent main-session message',
-      ts: activeSubagentSummaries[0]?.ts || latestUserMessage?.timestamp || Date.now(),
-      subagents: activeSubagentSummaries,
-    };
-  }
+  const nowLabel = activeSubagentSummaries[0]?.label || latestMeaningfulUserText || 'Monitoring for the next meaningful request';
+  const nowDetail = activeSubagentSummaries.length > 0
+    ? activeSubagentSummaries.map(item => `${agents[item.agentId]?.name || item.agentId}: ${item.label}`).join(' • ')
+    : latestMeaningfulUserText
+      ? 'No subagents running. Current focus is based on the latest substantive request.'
+      : 'No active task signal found in recent session history.';
 
-  let next = null;
+  const now = {
+    label: summarizeText(nowLabel, 120),
+    detail: summarizeText(nowDetail, 220),
+    source: activeSubagentSummaries.length > 0
+      ? 'Active subagent sessions'
+      : latestMeaningfulUser ? 'Recent substantive user request' : 'Recent session history',
+    ts: activeSubagentSummaries[0]?.ts || latestMeaningfulUser?.timestamp || Date.now(),
+    subagents: activeSubagentSummaries,
+  };
+
+  let nextDetail = '';
+  let nextSource = '';
+  let nextTs = Date.now();
+
   if (activeSubagentSummaries.length > 0) {
-    next = {
-      label: 'Next expected step',
-      detail: `Wait for ${activeSubagentSummaries.map(item => `${agents[item.agentId]?.name || item.agentId} to finish ${item.label.toLowerCase()}`).join(' and ')}.`,
-      source: 'Inferred from currently active subagent runs',
-      ts: activeSubagentSummaries[0].ts,
-      inferred: true,
-    };
+    nextDetail = activeSubagentSummaries.length === 1
+      ? `Review ${agents[activeSubagentSummaries[0].agentId]?.name || 'the active subagent'} output when it finishes, then deliver the result or queue the follow-up.`
+      : `Wait for the active subagents to finish, then consolidate their outputs into one operator update.`;
+    nextSource = 'Inferred from active subagent work';
+    nextTs = activeSubagentSummaries[0].ts;
   } else {
-    const latestAssistantCommentary = [...recentMessages].reverse().find(event => {
-      if (event.message.role !== 'assistant') return false;
-      return Array.isArray(event.message.content) && event.message.content.some(part => part?.textSignature?.phase === 'commentary');
-    });
     const commentaryText = flattenTextContent(latestAssistantCommentary?.message?.content);
-    next = {
-      label: 'Next likely move',
-      detail: summarizeText(commentaryText || 'No explicit planned follow-up is available from recent session history.', 200),
-      source: commentaryText ? 'Inferred from recent assistant commentary' : 'No direct source available',
-      ts: latestAssistantCommentary?.timestamp || Date.now(),
-      inferred: true,
-    };
+    nextDetail = inferNextStepFromText(commentaryText) || 'No strong follow-up is currently active; the next step is likely to review the latest completed work or wait for a new substantive request.';
+    nextSource = commentaryText ? 'Recent assistant commentary' : 'Session inference';
+    nextTs = latestAssistantCommentary?.timestamp || Date.now();
   }
 
   return {
     now,
-    done: done.filter(Boolean).sort((a, b) => safeNumber(b.ts) - safeNumber(a.ts)).slice(0, 4),
-    next,
+    done: done
+      .filter(item => item?.label && item?.detail)
+      .sort((a, b) => safeNumber(b.ts) - safeNumber(a.ts))
+      .slice(0, 4),
+    next: {
+      label: 'Next useful step',
+      detail: summarizeText(nextDetail, 220),
+      source: nextSource,
+      ts: nextTs,
+      inferred: true,
+    },
     refreshedAt: new Date().toISOString(),
   };
 }
