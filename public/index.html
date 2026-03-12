@@ -1337,6 +1337,10 @@ let latestSystem = null;
 let deploymentMeta = null;
 let dashboardMeta = null;
 let lastStateOk = false;
+let refreshInFlight = false;
+
+const STATE_REFRESH_INTERVAL_MS = 1000;
+const RELATIVE_TIME_REFRESH_INTERVAL_MS = 1000;
 
 const AGENT_META = {
   sai:   { emoji: '⚡', name: 'Sai' },
@@ -1735,20 +1739,26 @@ setInterval(() => {
       el.textContent = el.classList.contains('feed-time') ? shortTime(ts) : relTime(ts);
     }
   });
-}, 5000);
+}, RELATIVE_TIME_REFRESH_INTERVAL_MS);
 
 async function refreshState() {
-  const res = await fetch('/api/state', { cache: 'no-store' });
-  const data = await res.json();
-  lastStateOk = res.ok;
-  dashboardMeta = data.dashboard || null;
-  deploymentMeta = data.dashboard?.deployment || deploymentMeta;
-  renderBanner(dashboardMeta);
-  renderAgents(data.agents || []);
-  renderMetrics(data.metrics || {});
-  renderSystem(data.system || {});
-  feedItems = data.feed || [];
-  renderFeedBatch(feedItems);
+  if (refreshInFlight) return;
+  refreshInFlight = true;
+  try {
+    const res = await fetch('/api/state', { cache: 'no-store' });
+    const data = await res.json();
+    lastStateOk = res.ok;
+    dashboardMeta = data.dashboard || null;
+    deploymentMeta = data.dashboard?.deployment || deploymentMeta;
+    renderBanner(dashboardMeta);
+    renderAgents(data.agents || []);
+    renderMetrics(data.metrics || {});
+    renderSystem(data.system || {});
+    feedItems = data.feed || [];
+    renderFeedBatch(feedItems);
+  } finally {
+    refreshInFlight = false;
+  }
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -1773,7 +1783,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       lastStateOk = false;
     }
-  }, 5000);
+  }, STATE_REFRESH_INTERVAL_MS);
 });
 </script>
 </body>
