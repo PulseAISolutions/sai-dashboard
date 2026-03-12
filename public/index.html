@@ -987,6 +987,81 @@
   }
 
 
+
+  .operator-panel {
+    padding: 20px 24px 24px;
+  }
+
+  .operator-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .operator-card {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    padding: 16px;
+    min-width: 0;
+  }
+
+  .operator-card.done-card {
+    grid-column: span 1;
+  }
+
+  .operator-kicker {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 1.3px;
+    font-weight: 800;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .operator-title {
+    font-size: 1rem;
+    line-height: 1.35;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  .operator-detail,
+  .operator-source,
+  .operator-time,
+  .operator-done-item {
+    font-size: 0.76rem;
+    line-height: 1.55;
+    color: var(--text-secondary);
+  }
+
+  .operator-source,
+  .operator-time {
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  .operator-done-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .operator-done-item {
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--glass-border);
+  }
+
+  .operator-done-item strong {
+    display: block;
+    color: var(--text);
+    margin-bottom: 4px;
+    font-size: 0.74rem;
+  }
+
   .pipeline-panel {
     padding: 20px 24px 24px;
   }
@@ -1138,6 +1213,36 @@
         Agent Status
       </div>
       <div class="agents-grid" id="agents-grid"></div>
+    </section>
+
+
+    <section class="panel operator-panel">
+      <div class="section-label">
+        <i data-lucide="radar"></i>
+        Operator Status
+      </div>
+      <div class="operator-grid">
+        <div class="operator-card">
+          <div class="operator-kicker">Now</div>
+          <div class="operator-title" id="operator-now-title">Loading current work?</div>
+          <div class="operator-detail" id="operator-now-detail">Reading live session context?</div>
+          <div class="operator-source" id="operator-now-source"></div>
+          <div class="operator-time" id="operator-now-time"></div>
+        </div>
+        <div class="operator-card done-card">
+          <div class="operator-kicker">Done</div>
+          <div class="operator-done-list" id="operator-done-list">
+            <div class="operator-done-item">Waiting for recent completions?</div>
+          </div>
+        </div>
+        <div class="operator-card">
+          <div class="operator-kicker">Next</div>
+          <div class="operator-title" id="operator-next-title">Loading next step?</div>
+          <div class="operator-detail" id="operator-next-detail">Checking recent intent and active work?</div>
+          <div class="operator-source" id="operator-next-source"></div>
+          <div class="operator-time" id="operator-next-time"></div>
+        </div>
+      </div>
     </section>
 
     <section class="panel pipeline-panel">
@@ -1547,6 +1652,37 @@ function renderFeedBatch(items) {
   list.scrollTop = 0;
 }
 
+
+function renderOperatorStatus(data) {
+  const now = data?.now || {};
+  const next = data?.next || {};
+  const done = Array.isArray(data?.done) ? data.done : [];
+
+  document.getElementById('operator-now-title').textContent = now.label || 'No active operator task visible';
+  document.getElementById('operator-now-detail').textContent = now.detail || 'No grounded current task could be derived from session history.';
+  document.getElementById('operator-now-source').textContent = now.source ? `Source: ${now.source}` : '';
+  document.getElementById('operator-now-time').textContent = now.ts ? `Updated ${relTime(now.ts)}` : '';
+
+  document.getElementById('operator-next-title').textContent = next.label || 'No next step available';
+  document.getElementById('operator-next-detail').textContent = next.detail || 'No grounded next step could be derived yet.';
+  document.getElementById('operator-next-source').textContent = next.source ? `Source: ${next.source}` : '';
+  document.getElementById('operator-next-time').textContent = next.ts ? `Updated ${relTime(next.ts)}` : '';
+
+  const doneList = document.getElementById('operator-done-list');
+  if (!done.length) {
+    doneList.innerHTML = '<div class="operator-done-item">No recent completions captured yet.</div>';
+    return;
+  }
+
+  doneList.innerHTML = done.map(item => `
+    <div class="operator-done-item">
+      <strong>${esc(item.label || 'Completed')}</strong>
+      <div>${esc(item.detail || '')}</div>
+      <div class="operator-time" data-ts="${item.ts || ''}">${item.ts ? relTime(item.ts) : ''}</div>
+    </div>
+  `).join('');
+}
+
 function renderMetrics(m) {
   document.getElementById('m-sessions').textContent = m.totalSessions || m.activeSessions || 0;
   document.getElementById('m-agents').textContent = m.activeAgents || 0;
@@ -1754,6 +1890,7 @@ async function refreshState() {
     renderAgents(data.agents || []);
     renderMetrics(data.metrics || {});
     renderSystem(data.system || {});
+    renderOperatorStatus(data.operatorStatus || {});
     feedItems = data.feed || [];
     renderFeedBatch(feedItems);
   } finally {

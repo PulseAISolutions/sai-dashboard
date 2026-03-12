@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { exec, execSync } = require('child_process');
 const crypto = require('crypto');
+const readline = require('readline');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,7 +15,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const OPENCLAW_JSON = path.join(process.env.USERPROFILE || process.env.HOME, '.openclaw', 'openclaw.json');
+const OPENCLAW_HOME = path.join(process.env.USERPROFILE || process.env.HOME, '.openclaw');
+const OPENCLAW_JSON = path.join(OPENCLAW_HOME, 'openclaw.json');
+const SKILLS_DIR = path.join(OPENCLAW_HOME, 'workspace', 'skills');
 let GATEWAY_TOKEN = '';
 let GATEWAY_PORT = 18789;
 
@@ -96,6 +99,12 @@ const system = {
   openclawVersion,
   gatewayUptime: Date.now(),
   teamContracts: TEAM_CONTRACTS,
+  skills: {
+    total: 0,
+    newCount: 0,
+    updatedAt: null,
+    recent: [],
+  },
 };
 
 const metrics = {
@@ -122,8 +131,22 @@ const metrics = {
   },
 };
 
-const MAX_FEED = 200;
+const MAX_FEED = 120;
 const activityFeed = [];
+
+const STATUS_POLL_INTERVAL_MS = 1000;
+const SYSTEM_POLL_INTERVAL_MS = 30000;
+const METRICS_BROADCAST_INTERVAL_MS = 1000;
+
+let statusFetchInFlight = null;
+let systemFetchInFlight = null;
+let latestStatusData = null;
+let operatorStatus = {
+  now: null,
+  done: [],
+  next: null,
+  refreshedAt: null,
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -230,6 +253,44 @@ function computeUsageInsights(allRecent) {
   };
 }
 
+function readJsonIfExists(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+function fetchLocalSessionSnapshot() {
+  const agentsRoot = path.join(OPENCLAW_HOME, 'agents');
+  const agentDirs = [
+    { dir: 'main', agentId: 'sai' },
+    { dir: 'cody', agentId: 'cody' },
+    { dir: 'rory', agentId: 'rory' },
+    { dir: 'jamal', agentId: 'jamal' },
+  ];
+
+  const byAgent = [];
+  const recent = [];
+
+  for (const entry of agentDirs) {
+    const sessionsPath = path.join(agentsRoot, entry.dir, 'sessions', 'sessions.json');
+    const sessions = readJsonIfExists(sessionsPath) || {};
+    const mapped = Object.entries(sessions).map(([key, session]) => ({
+      ...session,
+      key,
+      age: session.updatedAt != null ? Math.max(Date.now() - safeNumber(session.updatedAt), 0) : null,
+    }));
+
+    mapped.sort((a, b) => safeNumber(a.updatedAt) < safeNumber(b.updatedAt) ? 1 : -1);
+    byAgent.push({ agentId: entry.agentId, count: mapped.length, recent: mapped.slice(0, 20) });
+    recent.push(...mapped.slice(0, 40));
+  }
+
+  recent.sort((a, b) => safeNumber(a.updatedAt) < safeNumber(b.updatedAt) ? 1 : -1);
+  return { sessions: { byAgent, recent, count: recent.length } };
+}
+
 // ── SSE ──────────────────────────────────────────────────────────────────────
 
 const sseClients = new Set();
@@ -252,15 +313,23 @@ function pushEvent(agentId, type, message) {
 // ── Data fetchers ────────────────────────────────────────────────────────────
 
 function fetchOpenClawStatus() {
-  return new Promise((resolve) => {
+  if (statusFetchInFlight) return statusFetchInFlight;
+
+  statusFetchInFlight = new Promise((resolve) => {
     exec('openclaw gateway call status --json', { timeout: 15000 }, (error, stdout) => {
       if (error) return resolve(null);
       try {
         const clean = stdout.replace(/\x1b\[[0-9;]*m/g, '').trim();
         resolve(JSON.parse(clean));
-      } catch (e) { resolve(null); }
+      } catch (e) {
+        resolve(null);
+      }
     });
+  }).finally(() => {
+    statusFetchInFlight = null;
   });
+
+  return statusFetchInFlight;
 }
 
 function normalizeCronStatus(raw) {
@@ -373,6 +442,218 @@ async function fetchTTSHealth() {
     return data;
   } catch (_) {
     return { status: 'offline' };
+  }
+}
+
+
+function summarizeText(value, max = 160) {
+  const clean = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  return clean.length > max ? clean.slice(0, max - 1).trimEnd() + '?' : clean;
+}
+
+function flattenTextContent(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map(part => {
+    if (!part || typeof part !== 'object') return '';
+    if (typeof part.text === 'string') return part.text;
+    return '';
+  }).join(' ').trim();
+}
+
+async function readRecentJsonLines(filePath, maxLines = 160) {
+  if (!filePath || !fs.existsSync(filePath)) return [];
+
+  const lines = [];
+  const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+  try {
+    for await (const line of rl) {
+      if (!line || !line.trim()) continue;
+      lines.push(line);
+      if (lines.length > maxLines) lines.shift();
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+
+  const parsed = [];
+  for (const line of lines) {
+    try {
+      parsed.push(JSON.parse(line));
+    } catch (_) {}
+  }
+  return parsed;
+}
+
+function parseTaskLabelFromText(text) {
+  const clean = summarizeText(text, 220);
+  if (!clean) return '';
+  const match = clean.match(/(?:TASK|Task|Subagent Task|Subagent task):\s*(.+)/);
+  if (match) return summarizeText(match[1], 150);
+  return clean;
+}
+
+function extractUserIntentText(content) {
+  const text = flattenTextContent(content);
+  if (!text) return '';
+  const lines = text
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .filter(line => !line.startsWith('Conversation info'))
+    .filter(line => !line.startsWith('Sender (untrusted metadata)'))
+    .filter(line => line !== '```json' && line !== '```');
+
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (!line.startsWith('{') && !line.startsWith('}') && !line.startsWith('"')) {
+      return summarizeText(line, 160);
+    }
+  }
+
+  return summarizeText(text, 160);
+}
+
+async function buildOperatorStatus(snapshot) {
+  const mainGroup = snapshot?.sessions?.byAgent?.find(entry => entry.agentId === 'sai');
+  const mainSession = mainGroup?.recent?.[0] || null;
+  const mainEvents = await readRecentJsonLines(mainSession?.sessionFile, 220);
+
+  const activeSubagents = (snapshot?.sessions?.recent || [])
+    .filter(session => String(session.key || '').includes(':subagent:') && safeNumber(session.age) < 300000)
+    .sort((a, b) => safeNumber(b.updatedAt) - safeNumber(a.updatedAt));
+
+  const recentMessages = mainEvents
+    .filter(event => event?.type === 'message' && event?.message?.role)
+    .slice(-80);
+
+  const latestUserMessage = [...recentMessages].reverse().find(event => event.message.role === 'user');
+  const latestAssistantFinal = [...recentMessages].reverse().find(event => {
+    if (event.message.role !== 'assistant') return false;
+    return Array.isArray(event.message.content) && event.message.content.some(part => part?.textSignature?.phase === 'final_answer');
+  });
+
+  const completionEvents = recentMessages
+    .filter(event => event.message.role === 'user')
+    .filter(event => flattenTextContent(event.message.content).includes('[Internal task completion event]'))
+    .slice(-8)
+    .reverse();
+
+  const done = [];
+
+  for (const event of completionEvents) {
+    const text = flattenTextContent(event.message.content);
+    const taskMatch = text.match(/task:\s*([\s\S]+?)status:\s*completed successfully/i);
+    const resultMatch = text.match(/<<<BEGIN_UNTRUSTED_CHILD_RESULT>>>[\s\S]+?<<<END_UNTRUSTED_CHILD_RESULT>>>/i);
+    done.push({
+      type: 'subagent',
+      label: summarizeText(taskMatch ? taskMatch[1].split('\n')[0] : 'Subagent task completed', 120),
+      detail: summarizeText(resultMatch ? resultMatch[0].replace(/<<<[\s\S]+?>>>/g, ' ') : 'Recent subagent completion captured from session history.', 200),
+      ts: event.timestamp || Date.now(),
+    });
+    if (done.length >= 3) break;
+  }
+
+  if (latestAssistantFinal) {
+    done.unshift({
+      type: 'reply',
+      label: 'Last delivered update',
+      detail: summarizeText(flattenTextContent(latestAssistantFinal.message.content), 200),
+      ts: latestAssistantFinal.timestamp || Date.now(),
+    });
+  }
+
+  const activeSubagentSummaries = [];
+  for (const session of activeSubagents.slice(0, 3)) {
+    const subEvents = await readRecentJsonLines(session.sessionFile, 60);
+    const latestTaskEvent = [...subEvents].reverse().find(event => event?.type === 'message' && event?.message?.role === 'user');
+    activeSubagentSummaries.push({
+      agentId: parseAgentFromSessionKey(session.key),
+      model: session.model || null,
+      label: parseTaskLabelFromText(flattenTextContent(latestTaskEvent?.message?.content) || humanizeSubagentTask(session) || 'Subagent task active'),
+      ts: session.updatedAt || Date.now(),
+    });
+  }
+
+  let now = null;
+  if (activeSubagentSummaries.length > 0 || latestUserMessage) {
+    now = {
+      label: activeSubagentSummaries.length > 0
+        ? extractUserIntentText(latestUserMessage?.message?.content) || 'Active operator request'
+        : extractUserIntentText(latestUserMessage?.message?.content) || 'Monitoring for next request',
+      detail: activeSubagentSummaries.length > 0
+        ? `${activeSubagentSummaries.length} subagent${activeSubagentSummaries.length === 1 ? '' : 's'} running: ${activeSubagentSummaries.map(item => `${agents[item.agentId]?.name || item.agentId} ? ${item.label}`).join(' ? ')}`
+        : 'No subagents are running right now.',
+      source: activeSubagentSummaries.length > 0 ? 'Live session + subagent session files' : 'Recent main-session message',
+      ts: activeSubagentSummaries[0]?.ts || latestUserMessage?.timestamp || Date.now(),
+      subagents: activeSubagentSummaries,
+    };
+  }
+
+  let next = null;
+  if (activeSubagentSummaries.length > 0) {
+    next = {
+      label: 'Next expected step',
+      detail: `Wait for ${activeSubagentSummaries.map(item => `${agents[item.agentId]?.name || item.agentId} to finish ${item.label.toLowerCase()}`).join(' and ')}.`,
+      source: 'Inferred from currently active subagent runs',
+      ts: activeSubagentSummaries[0].ts,
+      inferred: true,
+    };
+  } else {
+    const latestAssistantCommentary = [...recentMessages].reverse().find(event => {
+      if (event.message.role !== 'assistant') return false;
+      return Array.isArray(event.message.content) && event.message.content.some(part => part?.textSignature?.phase === 'commentary');
+    });
+    const commentaryText = flattenTextContent(latestAssistantCommentary?.message?.content);
+    next = {
+      label: 'Next likely move',
+      detail: summarizeText(commentaryText || 'No explicit planned follow-up is available from recent session history.', 200),
+      source: commentaryText ? 'Inferred from recent assistant commentary' : 'No direct source available',
+      ts: latestAssistantCommentary?.timestamp || Date.now(),
+      inferred: true,
+    };
+  }
+
+  return {
+    now,
+    done: done.filter(Boolean).sort((a, b) => safeNumber(b.ts) - safeNumber(a.ts)).slice(0, 4),
+    next,
+    refreshedAt: new Date().toISOString(),
+  };
+}
+
+function fetchSkillInventory() {
+  try {
+    const entries = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() || entry.isSymbolicLink())
+      .map(entry => {
+        const fullPath = path.join(SKILLS_DIR, entry.name);
+        const stats = fs.statSync(fullPath);
+        return {
+          name: entry.name,
+          mtimeMs: stats.mtimeMs || 0,
+        };
+      })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    const cutoff = Date.now() - (72 * 60 * 60 * 1000);
+    return {
+      total: entries.length,
+      newCount: entries.filter(entry => entry.mtimeMs >= cutoff).length,
+      updatedAt: Date.now(),
+      recent: entries.slice(0, 12).map(entry => entry.name),
+    };
+  } catch (_) {
+    return {
+      total: 0,
+      newCount: 0,
+      updatedAt: Date.now(),
+      recent: [],
+    };
   }
 }
 
@@ -510,6 +791,7 @@ async function updateSystem(statusData) {
   const tts = await fetchTTSHealth();
   system.ttsStatus = tts.status || 'offline';
   system.ttsModel = tts.model || system.ttsVoice;
+  system.skills = fetchSkillInventory();
 
   const crons = await fetchCronList();
   system.cronJobs = crons.map(job => {
@@ -538,24 +820,22 @@ let lastFeedState = '';
 
 async function pollAll() {
   try {
-    const data = await fetchOpenClawStatus();
-    if (data) {
-      updateFromOpenClaw(data);
-      await updateSystem(data);
+    const data = fetchLocalSessionSnapshot();
+    updateFromOpenClaw(data);
+    operatorStatus = await buildOperatorStatus(data);
 
-      const stateKey = Object.values(agents).map(a => `${a.id}:${a.status}`).join('|');
-      if (lastFeedState && stateKey !== lastFeedState) {
-        for (const agent of Object.values(agents)) {
-          const prev = lastFeedState.split('|').find(s => s.startsWith(agent.id + ':'));
-          const prevStatus = prev ? prev.split(':')[1] : 'OFFLINE';
-          if (prevStatus !== agent.status) {
-            const type = agent.status === 'ACTIVE' ? 'success' : agent.status === 'IDLE' ? 'info' : 'warning';
-            pushEvent(agent.id, type, `Status changed: ${prevStatus} → ${agent.status}`);
-          }
+    const stateKey = Object.values(agents).map(a => `${a.id}:${a.status}`).join('|');
+    if (lastFeedState && stateKey !== lastFeedState) {
+      for (const agent of Object.values(agents)) {
+        const prev = lastFeedState.split('|').find(s => s.startsWith(agent.id + ':'));
+        const prevStatus = prev ? prev.split(':')[1] : 'OFFLINE';
+        if (prevStatus !== agent.status) {
+          const type = agent.status === 'ACTIVE' ? 'success' : agent.status === 'IDLE' ? 'info' : 'warning';
+          pushEvent(agent.id, type, `Status changed: ${prevStatus} → ${agent.status}`);
         }
       }
-      lastFeedState = stateKey;
     }
+    lastFeedState = stateKey;
 
     broadcast('agents', Object.values(agents));
     broadcast('metrics', {
@@ -568,19 +848,28 @@ async function pollAll() {
   }
 }
 
-async function pollSystem() {
-  const data = await fetchOpenClawStatus();
-  await updateSystem(data);
-  broadcast('system', system);
+async function pollSystem(force = false) {
+  if (systemFetchInFlight) return systemFetchInFlight;
+
+  systemFetchInFlight = (async () => {
+    const data = force ? await fetchOpenClawStatus() : (latestStatusData || await fetchOpenClawStatus());
+    if (data) latestStatusData = data;
+    await updateSystem(data);
+    broadcast('system', system);
+  })().finally(() => {
+    systemFetchInFlight = null;
+  });
+
+  return systemFetchInFlight;
 }
 
-setInterval(pollAll, 8000);
-setInterval(pollSystem, 30000);
+setInterval(pollAll, STATUS_POLL_INTERVAL_MS);
+setInterval(() => pollSystem(), SYSTEM_POLL_INTERVAL_MS);
 
 setTimeout(async () => {
   await pollAll();
-  await pollSystem();
-  pushEvent('sai', 'info', 'Dashboard connected — polling live data');
+  await pollSystem(true);
+  pushEvent('sai', 'info', `Dashboard connected — key state refreshes every ${STATUS_POLL_INTERVAL_MS / 1000}s`);
 }, 1000);
 
 setInterval(() => {
@@ -588,7 +877,7 @@ setInterval(() => {
     ...metrics,
     uptimeMs: Date.now() - metrics.uptime,
   });
-}, 2000);
+}, METRICS_BROADCAST_INTERVAL_MS);
 
 // ── REST API ─────────────────────────────────────────────────────────────────
 
@@ -598,6 +887,15 @@ app.get('/api/state', (req, res) => {
     feed: activityFeed.slice(-50),
     metrics: { ...metrics, uptimeMs: Date.now() - metrics.uptime },
     system,
+    operatorStatus,
+    dashboard: {
+      mode: 'local',
+      status: 'live',
+      message: 'Live state is being served directly from the local dashboard process.',
+      upstreamBaseUrl: `http://localhost:${PORT}`,
+      refreshedAt: new Date().toISOString(),
+      truth: 'This dashboard is connected directly to the machine running OpenClaw, not to a static snapshot.',
+    },
   });
 });
 
