@@ -1048,6 +1048,41 @@
     line-height: 1.5;
   }
 
+  .status-banner {
+    margin: 0 var(--page-pad);
+    margin-top: 20px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid var(--glass-border);
+    background: rgba(255,255,255,0.03);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .status-banner.live {
+    border-color: rgba(16, 185, 129, 0.24);
+    background: rgba(16, 185, 129, 0.08);
+  }
+
+  .status-banner.degraded {
+    border-color: rgba(245, 158, 11, 0.24);
+    background: rgba(245, 158, 11, 0.08);
+  }
+
+  .status-banner-title {
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+  }
+
+  .status-banner-copy {
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+
 </style>
 </head>
 <body>
@@ -1089,6 +1124,11 @@
     </div>
   </div>
 </header>
+
+<section class="status-banner degraded" id="status-banner">
+  <div class="status-banner-title" id="status-banner-title">Checking live state</div>
+  <div class="status-banner-copy" id="status-banner-copy">This deployment now reports honestly whether a real upstream OpenClaw API is configured and reachable.</div>
+</section>
 
 <div class="main-content">
   <div class="content-column">
