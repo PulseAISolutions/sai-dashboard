@@ -491,6 +491,7 @@
 
   .usage-panel,
   .team-panel,
+  .skills-panel,
   .system-panel {
     padding: 20px;
   }
@@ -565,6 +566,61 @@
     flex-direction: column;
     gap: 10px;
     margin-top: 14px;
+  }
+
+  .skills-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  .skill-stat {
+    padding: 14px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--glass-border);
+  }
+
+  .skill-stat-label {
+    font-size: 0.58rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 700;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .skill-stat-value {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .skill-stat-value.highlight { color: var(--cyan); }
+  .skill-stat-value.good { color: var(--green); }
+
+  .skill-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .skill-chip {
+    font-size: 0.64rem;
+    line-height: 1.2;
+    padding: 8px 10px;
+    border-radius: 999px;
+    color: var(--text-secondary);
+    background: rgba(124, 58, 237, 0.08);
+    border: 1px solid rgba(124, 58, 237, 0.14);
+  }
+
+  .skill-footnote {
+    margin-top: 12px;
+    font-size: 0.66rem;
+    color: var(--muted);
   }
 
   .contract-item {
@@ -702,6 +758,28 @@
     text-transform: uppercase;
     letter-spacing: 2px;
     color: var(--muted);
+  }
+
+  .feed-tools {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .feed-mode-badge,
+  .feed-count {
+    font-size: 0.55rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid rgba(124, 58, 237, 0.15);
+  }
+
+  .feed-mode-badge {
+    color: var(--cyan);
+    background: rgba(6, 182, 212, 0.08);
+    border-color: rgba(6, 182, 212, 0.14);
   }
 
   .feed-count {
@@ -892,7 +970,8 @@
 
   @media (max-width: 600px) {
     .agents-grid,
-    .usage-grid { grid-template-columns: 1fr; }
+    .usage-grid,
+    .skills-summary { grid-template-columns: 1fr; }
     .card-header,
     .token-bar-header,
     .card-meta,
@@ -1004,11 +1083,33 @@
       <div class="contract-list" id="team-contracts"></div>
     </section>
 
+    <section class="panel skills-panel">
+      <div class="section-label">
+        <i data-lucide="sparkles"></i>
+        Skill Library
+      </div>
+      <div class="skills-summary">
+        <div class="skill-stat">
+          <div class="skill-stat-label">Installed Skills</div>
+          <div class="skill-stat-value highlight" id="skills-total">0</div>
+        </div>
+        <div class="skill-stat">
+          <div class="skill-stat-label">New In Last 72h</div>
+          <div class="skill-stat-value good" id="skills-new">0</div>
+        </div>
+      </div>
+      <div class="skill-chip-list" id="skills-recent"></div>
+      <div class="skill-footnote" id="skills-footnote">Scanning workspace skills…</div>
+    </section>
+
     <section class="panel feed-section">
       <div class="feed-header">
         <i data-lucide="activity" style="width:14px;height:14px;color:var(--muted)"></i>
         <span class="feed-title">Activity Feed</span>
-        <span class="feed-count" id="feed-count">0</span>
+        <div class="feed-tools">
+          <span class="feed-mode-badge">Newest first</span>
+          <span class="feed-count" id="feed-count">0</span>
+        </div>
       </div>
       <div class="feed-scroll" id="feed-list">
         <div class="empty-feed" id="feed-empty">
@@ -1252,9 +1353,9 @@ function renderFeedBatch(items) {
   if (empty) empty.remove();
 
   list.innerHTML = '';
-  items.forEach(item => list.appendChild(makeFeedRow(item, false)));
+  [...items].reverse().forEach(item => list.appendChild(makeFeedRow(item, false)));
   document.getElementById('feed-count').textContent = items.length;
-  requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+  list.scrollTop = 0;
 }
 
 function renderFeedItem(item) {
@@ -1262,8 +1363,8 @@ function renderFeedItem(item) {
   const empty = document.getElementById('feed-empty');
   if (empty) empty.remove();
 
-  list.appendChild(makeFeedRow(item, true));
-  requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+  list.prepend(makeFeedRow(item, true));
+  list.scrollTop = 0;
 }
 
 function renderMetrics(m) {
@@ -1335,6 +1436,25 @@ function renderTeamContracts(contracts) {
   `).join('');
 }
 
+function renderSkills(skills) {
+  const data = skills || {};
+  document.getElementById('skills-total').textContent = fmtTokens(data.total || 0);
+  document.getElementById('skills-new').textContent = fmtTokens(data.newCount || 0);
+
+  const chipList = document.getElementById('skills-recent');
+  const recent = Array.isArray(data.recent) ? data.recent : [];
+  if (!recent.length) {
+    chipList.innerHTML = '<span class="skill-chip">No recent skill data</span>';
+  } else {
+    chipList.innerHTML = recent.map(name => `<span class="skill-chip">${esc(name)}</span>`).join('');
+  }
+
+  const updated = data.updatedAt ? `Updated ${relTime(data.updatedAt)}` : 'Skill inventory unavailable';
+  const total = data.total ? `${data.total} installed` : 'No skills found';
+  const fresh = data.newCount ? ` · ${data.newCount} new recently` : '';
+  document.getElementById('skills-footnote').textContent = `${total}${fresh} · ${updated}`;
+}
+
 function renderCronList(cronJobs) {
   const cronList = document.getElementById('cron-list');
 
@@ -1377,6 +1497,8 @@ function renderCronList(cronJobs) {
 
 function renderSystem(sys) {
   if (!sys) return;
+
+  renderSkills(sys.skills || {});
 
   const versionLabel = document.getElementById('version-label');
   const versionDetail = document.getElementById('sys-version');
@@ -1477,7 +1599,7 @@ function connect() {
   es.addEventListener('activity', e => {
     const item = JSON.parse(e.data);
     feedItems.push(item);
-    if (feedItems.length > 200) feedItems.shift();
+    if (feedItems.length > 120) feedItems.shift();
     renderFeedItem(item);
     document.getElementById('feed-count').textContent = feedItems.length;
   });
